@@ -1,7 +1,0 @@
-{
-  "name": "AURA Companion",
-  "description": "Mindful habits, nutrition, gentle daily rhythm, and community wellness companion.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
-

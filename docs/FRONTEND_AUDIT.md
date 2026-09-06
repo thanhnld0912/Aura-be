@@ -1,8 +1,16 @@
 # FRONTEND AUDIT — `aura-companion`
 
-> Audit date: 2026-09-06 · Phase 0 · No code was modified during this audit.
-> The frontend was relocated from `e:\Code\aura-companion` to `e:\Code\AURA\aura-companion`
-> as a **pure directory move** — all 22 files verified byte-for-byte identical by MD5 manifest.
+> Audit date: 2026-09-06 · Phase 0 · No code was modified during this audit, or during
+> either relocation since.
+>
+> **The frontend now lives in its own repository, `E:\Code\AURA-FE`.** This audit document
+> remains in AURA-BE because it is the record of what the backend must serve. Every
+> `src/…` path below is relative to the AURA-FE repository root.
+>
+> Relocation history — content unchanged throughout:
+> 1. `e:\Code\aura-companion` → `e:\Code\AURA\aura-companion` (22 files, MD5-verified)
+> 2. `e:\Code\AURA\aura-companion` → `e:\Code\AURA-FE` (23 files, SHA-256-verified,
+>    `aura-companion` wrapper dropped so the project sits at the repo root)
 
 ---
 
@@ -10,7 +18,7 @@
 
 | Property | Value |
 |---|---|
-| Path | `AURA/aura-companion/` |
+| Repository | `E:\Code\AURA-FE` — independent of AURA-BE |
 | Framework | React **19.0.1** + Vite **6.2.3** |
 | Language | TypeScript **5.8** (`noEmit`, bundler resolution, `jsx: react-jsx`) |
 | Styling | Tailwind CSS **4.1.14** via `@tailwindcss/vite` (CSS-first `@theme`, no `tailwind.config.js`) |
@@ -40,7 +48,7 @@ wrong-headed data layer to unpick. The backend gets a clean slate and a finished
 ## 2. File inventory
 
 ```
-aura-companion/
+AURA-FE/                             # repository root
 ├── index.html                       # CDN fonts, M3 body classes
 ├── metadata.json                    # AI Studio manifest
 ├── package.json                     # ⚠ name: "react-example"
@@ -148,13 +156,17 @@ nutrition, no confidence, no source. `FoodItem` carries `icon`, `tagColor`, `por
 **Approach — additive, not a rewrite:**
 
 ```
-shared/types/                 →  domain models (Meal, DailyEvent, Pattern, …)
-aura-companion/src/types.ts   →  KEPT as view-models
-aura-companion/src/adapters/  →  NEW: domainEvent → TimelineEvent mappers
+AURA-BE/shared/types/    →  domain models (Meal, DailyEvent, Pattern, …)
+AURA-FE/src/types.ts     →  KEPT as view-models
+AURA-FE/src/adapters/    →  NEW: domainEvent → TimelineEvent mappers
 ```
 
 Components keep receiving exactly the props they receive today. Nothing re-renders differently.
 The adapter layer absorbs the entire impedance mismatch.
+
+Note that the domain models now sit in a **different repository**. How AURA-FE obtains them
+is an open decision — see `ARCHITECTURE.md` §10. The adapter layer is unaffected either way:
+it maps whatever shape arrives from the API onto the existing view-models.
 
 ### 4.2 Scattered mock data
 

@@ -34,7 +34,7 @@ Three architectural consequences follow directly, and they drive every decision 
 
 | Area | Decision | Rationale |
 |---|---|---|
-| Workspace | `AURA/` with `aura-companion/` + `server/` + `shared/` + `docs/` | Matches §30; frontend moved intact, byte-verified |
+| Repositories | **Two independent repos** — `AURA-FE` (frontend) and `AURA-BE` (`server/` + `shared/` + `docs/`) | Independent deploy cadence and access control; the HTTP boundary is enforced by the repo boundary. Frontend relocated twice, byte-verified by SHA-256 both times. |
 | Backend runtime | Node.js 22 LTS + TypeScript 5.8 (ESM) | Matches frontend toolchain; one language across the stack |
 | HTTP framework | **Fastify 5** | TS-first, plugin encapsulation maps onto modular-monolith boundaries, ~2× Express throughput, first-class lifecycle hooks for auth/rate-limit |
 | Database | **PostgreSQL 16** (Supabase) | Relational integrity for plan↔event↔meal; window functions and `CORR()` do the Pattern Engine's real work |
@@ -63,7 +63,7 @@ Three architectural consequences follow directly, and they drive every decision 
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                            aura-companion (EXISTING)                         │
+│                      AURA-FE — aura-companion (EXISTING)                     │
 │                React 19 · Vite 6 · Tailwind 4 · TypeScript 5.8               │
 │                                                                              │
 │   TodayView   InsightsView   HistoryView   CrewView   AICoachView  LogModal   │
@@ -76,7 +76,7 @@ Three architectural consequences follow directly, and they drive every decision 
                                       │  Authorization: Bearer <supabase jwt>
                                       ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                              server/  (NEW BACKEND)                          │
+│                       AURA-BE — server/  (NEW BACKEND)                       │
 │                          Fastify 5 · TypeScript · Zod                        │
 │                                                                              │
 │  middleware:  auth · rate-limit · CORS · Helmet · validation · error · log   │
@@ -267,12 +267,31 @@ shared/
 └── schemas/   # Zod schemas the API validates with and the client infers from
 ```
 
-Consumed by both sides via path alias. The rule: **`shared/` contains no runtime dependency
-beyond Zod** — no DB imports, no Fastify, no React. If it cannot run in a browser and in Node,
-it does not belong there.
+The rule: **`shared/` contains no runtime dependency beyond Zod** — no DB imports, no Fastify,
+no React. If it cannot run in a browser and in Node, it does not belong there.
 
-At MVP this is a plain directory referenced by relative path, not an npm workspace package.
-Promote it to a workspace only when the Android client needs to consume it independently.
+### ⚠ Open decision — cross-repository consumption
+
+`shared/` lives in **AURA-BE**. When the two projects were one workspace, the frontend could
+consume it by relative path. **Since the repository split, it cannot.** This is the one real
+architectural consequence of separating the projects, and it needs a decision before Phase 6
+(frontend integration) — not before Phase 1.
+
+`shared/` is currently **empty**, so nothing is broken today. The options:
+
+| Option | How | Trade-off |
+|---|---|---|
+| **A. Publish as a package** | `@aura/shared` to a private npm registry or GitHub Packages | Cleanest and versioned; needs registry setup and a release step on every contract change |
+| **B. Generate FE types from OpenAPI** | Emit OpenAPI from the Zod schemas, codegen a typed client into AURA-FE | One-way and automatable; FE never imports BE source; extra build step |
+| **C. Git submodule** | `shared/` as its own repo, submoduled into both | No registry; submodules are awkward and easy to leave stale |
+| **D. Duplicate the types in AURA-FE** | Hand-maintained copy | Zero tooling; drifts silently — the failure mode is a runtime shape mismatch |
+
+**Recommendation: B.** The backend already defines every contract as a Zod schema, so OpenAPI
+generation is nearly free, and it keeps the dependency strictly one-way — AURA-FE consumes a
+generated artefact and never reaches into backend source. It also produces exactly what the
+Android client needs in Phase 9, so the work is not FE-specific.
+
+Not decided here. See `IMPLEMENTATION_PLAN.md` Phase 6.
 
 ---
 

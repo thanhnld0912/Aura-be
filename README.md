@@ -9,20 +9,60 @@ PLAN → LIVE DAY → LOG ACTUAL → COMPARE → ANALYZE → DISCOVER PATTERNS �
 
 ---
 
-## Workspace
+## Two independent projects
+
+AURA consists of two independent projects, each with its own git repository:
+
+| Project | Location | Role |
+|---|---|---|
+| **AURA-FE** | `E:\Code\AURA-FE` | Frontend web application |
+| **AURA-BE** | `E:\Code\AURA-BE` *(this repo)* | Backend / API / business logic |
 
 ```
-AURA/
-├── aura-companion/    # EXISTING frontend — React 19 · Vite 6 · Tailwind 4 · TypeScript
-├── server/            # NEW backend — Fastify 5 · TypeScript · Drizzle · PostgreSQL
-├── shared/            # types + Zod schemas used by both
+┌──────────────────────┐
+│       AURA-FE        │
+│ React / existing UI  │
+└──────────┬───────────┘
+           │ HTTPS REST API
+           ▼
+┌──────────────────────┐
+│       AURA-BE        │
+│ API / AI / Nutrition │
+│ Business Logic       │
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐
+│ Supabase PostgreSQL  │
+└──────────────────────┘
+```
+
+### This repository
+
+```
+AURA-BE/
+├── server/            # backend — Fastify 5 · TypeScript · Drizzle · PostgreSQL
+├── shared/            # domain types + Zod schemas
 ├── docs/              # architecture
 └── README.md
 ```
 
-`aura-companion` is the existing, working frontend and is kept as-is. The backend is a
-separate project alongside it. The frontend talks to the backend over HTTPS and never touches
-the database or an AI provider directly.
+### The frontend repository
+
+```
+AURA-FE/
+├── src/               # React 19 · Vite 6 · Tailwind 4 · TypeScript
+├── public/
+├── package.json
+├── tsconfig.json
+└── vite.config.ts
+```
+
+The frontend is the existing, working application and is kept as-is. It reaches the backend
+only over HTTPS, and never touches the database or an AI provider directly.
+
+> **Open item:** `shared/` lives in this repository. Now that the two projects are split, the
+> frontend can no longer consume it by relative path — see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §10.
 
 ---
 
@@ -90,12 +130,13 @@ Read in this order:
 
 ## Getting started
 
-Nothing to run yet beyond the frontend.
+Nothing to run in this repository yet — the backend is designed, not implemented.
+Backend setup lands in Phase 1; see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) §4.
+
+The frontend runs from its own repository:
 
 ```bash
-cd aura-companion
+cd E:\Code\AURA-FE
 npm install        # commit the resulting package-lock.json
 npm run dev        # http://localhost:3000
 ```
-
-Backend setup lands in Phase 1 — see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) §4.

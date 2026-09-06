@@ -17,6 +17,16 @@
 **Outcome:** the frontend is a high-fidelity prototype with no data layer to unpick. The
 backend fills a vacuum rather than retrofitting around prior decisions.
 
+### Phase 0b — Repository split ✅ COMPLETE
+
+- [x] `AURA-FE` and `AURA-BE` established as independent local git repositories
+- [x] Frontend relocated to `E:\Code\AURA-FE`, `aura-companion` wrapper dropped
+      (23 files, SHA-256-verified, 0 mismatches, no source modified)
+- [x] Verified the frontend has **no** filesystem dependency on `server/`, `shared/` or `docs/`
+- [x] Documentation updated for the two-repository layout
+- [ ] **Open:** how AURA-FE consumes `shared/` across the repo boundary — `ARCHITECTURE.md` §10
+- [ ] **Open:** `.gitattributes` for both repos (`core.autocrlf=true` with none present)
+
 ---
 
 ## Phase 1 — Backend foundation
@@ -132,6 +142,10 @@ a narrative containing no causal verbs.
 ## Phase 6 — Frontend integration
 
 **Goal:** the existing UI, unchanged in appearance, running on real data.
+
+All work in this phase happens in the **AURA-FE** repository. **Settle `ARCHITECTURE.md` §10
+first** — how AURA-FE obtains the domain types across the repo boundary is a prerequisite for
+step 1, not a detail to discover mid-way.
 
 Order matters — one vertical slice proves the whole stack before breadth:
 

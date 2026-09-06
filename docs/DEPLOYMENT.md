@@ -100,7 +100,7 @@ CRON_TIMEZONE=Asia/Ho_Chi_Minh
 ```
 
 ```bash
-# aura-companion/.env.local.example
+# AURA-FE/.env.local.example  — separate repository
 VITE_API_BASE_URL=http://localhost:3001/api
 VITE_SUPABASE_URL=
 VITE_SUPABASE_ANON_KEY=          # public by design, guarded by RLS
@@ -117,20 +117,28 @@ later.
 
 ## 4. Local development
 
-```bash
-# once
-git clone <repo> && cd AURA
+The two projects are **separate repositories**, cloned independently:
 
-cd aura-companion && npm install    # commits package-lock.json — see FRONTEND_AUDIT R1
-cd ../server && npm install
+```bash
+# once — backend (this repo)
+git clone <aura-be-repo> AURA-BE
+cd AURA-BE/server && npm install
 cp .env.example .env                # fill in keys
 npm run db:migrate
 npm run db:seed                     # system habits + Vietnamese food dataset
 
-# each session
-cd server && npm run dev            # :3001
-cd aura-companion && npm run dev    # :3000
+# once — frontend
+git clone <aura-fe-repo> AURA-FE
+cd AURA-FE && npm install           # commits package-lock.json — see FRONTEND_AUDIT R1
+cp .env.local.example .env.local    # set VITE_API_BASE_URL
+
+# each session — two terminals
+cd AURA-BE/server  && npm run dev   # :3001
+cd AURA-FE         && npm run dev   # :3000
 ```
+
+Nothing requires the two checkouts to sit side by side on disk. The only coupling is
+`VITE_API_BASE_URL` pointing at the running backend.
 
 Postgres locally via Docker (`docker compose up db`) or a Supabase free project.
 Docker Compose covers Postgres only — the API runs on the host for fast reload.
