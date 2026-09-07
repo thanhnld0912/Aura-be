@@ -25,29 +25,50 @@ backend fills a vacuum rather than retrofitting around prior decisions.
 - [x] Verified the frontend has **no** filesystem dependency on `server/`, `shared/` or `docs/`
 - [x] Documentation updated for the two-repository layout
 - [ ] **Open:** how AURA-FE consumes `shared/` across the repo boundary — `ARCHITECTURE.md` §10
-- [ ] **Open:** `.gitattributes` for both repos (`core.autocrlf=true` with none present)
+- [x] `.gitattributes` — added to AURA-BE in Phase 1; AURA-FE still open
 
 ---
 
-## Phase 1 — Backend foundation
+## Phase 1 — Backend foundation ✅ COMPLETE
 
 **Goal:** a running, secured, observable Fastify server that does nothing yet.
 
-- `server/` — TypeScript ESM, Fastify 5, Vitest, tsx watch
-- `config/env.ts` — Zod-parsed config, fails loudly at boot
-- Middleware: Helmet, CORS allowlist, rate limiting, request ID, pino logging
-- Global Zod validator + serializer compilers (an unvalidated route cannot register)
-- Uniform error envelope + typed `AppError` hierarchy
-- `GET /api/health` with DB check
-- Drizzle + migration tooling; Docker Compose for local Postgres
-- GitHub Actions: typecheck, test, `npm audit`, gitleaks
+- [x] `server/` — TypeScript ESM (strict), Fastify 5, Vitest, tsx watch
+- [x] `config/env.ts` — Zod-parsed config, fails loudly at boot. Variables are required from
+      the phase that consumes them, so the server boots without keys it does not yet use
+- [x] Middleware: Helmet, CORS allowlist, rate limiting, ULID request id, pino logging with
+      the `SECURITY.md` §9 redaction list
+- [x] Global Zod validator + serializer compilers, plus an `onRoute` guard — a route with no
+      response schema, or a mutating route with no body schema, fails to *register*
+- [x] Uniform error envelope + typed `AppError` hierarchy covering every code in
+      `API_DESIGN.md` §1
+- [x] `GET /api/health` with a real DB check; `503` when the database is unreachable
+- [x] Drizzle + migration tooling; `0000_enable_extensions` (pg_trgm, unaccent);
+      Docker Compose for local Postgres
+- [x] GitHub Actions: typecheck, migrate against a fresh Postgres 16, test, build,
+      `npm audit`, gitleaks
+- [x] `.gitattributes` — LF normalisation, which also keeps Drizzle's migration hashes stable
+      across Windows and CI (closes a Phase 0b open item)
+
+**Deviations from the Phase 0 design, each recorded in the affected document:**
+
+1. **Rate-limit store is in-memory, not Postgres** (`SECURITY.md` §5). No table was designed
+   for counters, and MVP is a single container. Replaced by Redis at the trigger already
+   written down in `DEPLOYMENT.md` §8 — a second API container.
+2. **`health.checks` contains `database` only** (`API_DESIGN.md` §3). `storage`, `anthropic`
+   and `gemini` appear in Phase 4, when there are clients to probe; reporting `"ok"` for an
+   uncontacted provider would be a fabricated result.
+
+**Still open:** the frontend chores below. `shared/` remains empty by design —
+`ARCHITECTURE.md` §10 defers cross-repo consumption to Phase 6.
 
 **Also, on the frontend (small, isolated):** commit `package-lock.json` (audit risk R1),
 add `"include": ["src"]` to `tsconfig.json`, remove the 6 unused scaffold deps, rename the
 package to `aura-companion`.
 
 **Done when:** `/api/health` returns 200 in CI, and a malformed request returns the documented
-error envelope.
+error envelope. — *both verified. 58 tests pass locally; 5 further database-backed tests are
+gated on `TEST_DATABASE_URL` and run against Postgres 16 in CI.*
 
 ---
 

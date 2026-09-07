@@ -42,8 +42,11 @@ AURA consists of two independent projects, each with its own git repository:
 ```
 AURA-BE/
 ├── server/            # backend — Fastify 5 · TypeScript · Drizzle · PostgreSQL
-├── shared/            # domain types + Zod schemas
+│   ├── src/           # config · middleware · database · modules · routes
+│   └── tests/         # unit + integration (Vitest)
+├── shared/            # domain types + Zod schemas — empty until Phase 6 (ARCHITECTURE.md §10)
 ├── docs/              # architecture
+├── docker-compose.yml # local PostgreSQL 16
 └── README.md
 ```
 
@@ -68,13 +71,15 @@ only over HTTPS, and never touches the database or an AI provider directly.
 
 ## Status
 
-**Phase 0 (Audit) complete. Awaiting architecture confirmation before implementation.**
+**Phase 1 (Backend foundation) complete.** The server boots, is hardened, is observable, and
+deliberately does nothing else yet.
 
 | | |
 |---|---|
-| Frontend | Complete UI prototype — 13 files, ~3,200 lines. No backend, DB, API, AI, or auth. |
-| Backend | Not yet implemented — designed |
-| Database | Designed (`docs/DATABASE_DESIGN.md`) |
+| Frontend | Complete UI prototype in `AURA-FE` — no backend, DB, API, AI, or auth |
+| Backend | Fastify 5 running: config, security middleware, error envelope, `GET /api/health` |
+| Database | Connected; extensions migration applied. Table schema lands in Phase 2 |
+| Next | Phase 2 — the Planned-vs-Actual spine and Supabase Auth |
 
 ---
 
@@ -130,8 +135,34 @@ Read in this order:
 
 ## Getting started
 
-Nothing to run in this repository yet — the backend is designed, not implemented.
-Backend setup lands in Phase 1; see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) §4.
+### Backend (this repository)
+
+Requires Node 22+ and a PostgreSQL 16 — either `docker compose up -d db` from the repo root,
+or a Supabase project.
+
+```bash
+cd server
+npm install
+cp .env.example .env          # DATABASE_URL and CORS_ORIGIN are the only required values today
+npm run db:migrate            # applies committed SQL; never run at app boot
+npm run dev                   # http://localhost:3001
+```
+
+```bash
+curl http://localhost:3001/api/health
+# {"status":"ok","version":"1.0.0","uptime":3,"checks":{"database":"ok"}}
+```
+
+| Command | Does |
+|---|---|
+| `npm run dev` | tsx watch, pretty logs |
+| `npm run typecheck` | `tsc --noEmit`, strict |
+| `npm test` | Vitest. Database-backed tests skip unless `TEST_DATABASE_URL` is set |
+| `npm run build` | Compile to `dist/` and copy migrations |
+| `npm run db:generate` | Drizzle Kit generates SQL for review — it never applies it |
+| `npm run db:migrate` | Apply committed migrations |
+
+### Frontend
 
 The frontend runs from its own repository:
 

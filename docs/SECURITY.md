@@ -104,8 +104,17 @@ in EXIF, and this is a product used by people who may be minors.
 
 ## 5. Rate limiting
 
-Per-user buckets from the JWT (IP only for unauthenticated routes), backed by Postgres at MVP
-and Redis if traffic warrants. Limits are in `API_DESIGN.md` §17.
+Per-user buckets from the JWT (IP only for unauthenticated routes). Limits are in
+`API_DESIGN.md` §17.
+
+**Store — amended in Phase 1.** This section originally specified a Postgres-backed store
+at MVP. It is in-memory instead, for two reasons: `DATABASE_DESIGN.md` defines no table for
+rate-limit counters, and `DEPLOYMENT.md` §1 runs MVP as a *single* always-on container,
+where a shared store buys nothing and costs a database round-trip on every request. The
+trigger to replace it is the one already written down in `DEPLOYMENT.md` §8: a second API
+container, at which point Redis is introduced for this and for the insight cache together.
+The bucket key is decided in exactly one function (`middleware/rate-limit.ts`), so the
+store swap does not touch any route.
 
 Rate limits here serve three purposes at once: abuse prevention, **cost control** (20 vision
 calls/day bounds a user's AI spend at roughly $0.30/day), and protection of upstream quotas

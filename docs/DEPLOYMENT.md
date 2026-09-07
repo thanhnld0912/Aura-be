@@ -65,6 +65,7 @@ evidence rather than anticipation.
 
 NODE_ENV=development
 PORT=3001
+HOST=0.0.0.0
 LOG_LEVEL=info
 
 # Database

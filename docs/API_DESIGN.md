@@ -90,6 +90,11 @@ Auth: **none** · Response `200`
 Returns `503` if the database check fails. Provider checks are cached 60 s and never block
 the response — a degraded AI provider must not mark the API unhealthy.
 
+`checks` lists only dependencies that are actually probed, so it grows with the phases:
+`database` from Phase 1, `storage`/`anthropic`/`gemini` from Phase 4. Reporting `"ok"` for a
+provider nothing has contacted would be a fabricated result. `status` is `ok`, `degraded`
+(a non-critical check failing, still `200`) or `error` (the database check failing, `503`).
+
 ---
 
 ## 4. Auth
