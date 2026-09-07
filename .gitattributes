@@ -1,0 +1,14 @@
+# Normalise to LF in the repository and in the working tree.
+#
+# This matters beyond tidiness: Drizzle identifies an applied migration by the
+# SHA-256 of its .sql file, so the same migration checked out with CRLF on Windows
+# and LF in CI hashes differently and would be applied twice
+# (DATABASE_DESIGN.md §7). Closes the .gitattributes item left open by Phase 0b.
+* text=auto eol=lf
+
+*.sql        text eol=lf
+*.json       text eol=lf
+*.ts         text eol=lf
+*.md         text eol=lf
+*.yml        text eol=lf
+package-lock.json linguist-generated=true -diff
