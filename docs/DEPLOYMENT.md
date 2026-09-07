@@ -197,6 +197,13 @@ Two dependencies are pinned past their declared range by this — `drizzle-kit` 
 `@esbuild-kit/core-utils` (`~0.18.20`). Both are verified: `drizzle-kit generate` bundles
 `drizzle.config.ts` through esbuild and works, and the full suite and build pass.
 
+### Database-backed tests must not skip
+
+`tests/integration/database.test.ts` is gated on `TEST_DATABASE_URL` so the suite runs
+without Docker locally. A skipped test reports as a *passing* run, so CI additionally re-runs
+that file with the JSON reporter and fails if any of its five tests did not execute — green
+would otherwise say nothing about the database layer.
+
 ### `npm run check:lockfile`
 
 Runs in **both** jobs, before `npm ci`. It fails on any lockfile entry that is `extraneous`

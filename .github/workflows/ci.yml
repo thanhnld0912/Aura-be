@@ -70,6 +70,14 @@ jobs:
       - name: Test
         run: npm test
 
+      # A skipped test reports as a passing run. The database-backed tests are gated
+      # on TEST_DATABASE_URL so the suite runs without Docker locally — in CI they
+      # must actually execute, or green means nothing for the database layer.
+      - name: Database-backed tests must not skip
+        run: |
+          npx vitest run tests/integration/database.test.ts --reporter=json --outputFile="$RUNNER_TEMP/vitest-db.json"
+          node scripts/assert-tests-ran.mjs "$RUNNER_TEMP/vitest-db.json" 5
+
       - name: Build
         run: npm run build
 
