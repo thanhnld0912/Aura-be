@@ -4,6 +4,7 @@ import {
   check,
   customType,
   index,
+  integer,
   jsonb,
   numeric,
   pgTable,
@@ -34,6 +35,14 @@ export const foods = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     canonicalName: text('canonical_name').notNull(),
+    /**
+     * The diacritic-free, lowercased form every lookup keys on. Computed in the
+     * application (`nutrition/normalize.ts`) rather than by `unaccent()`, which is only
+     * STABLE and so cannot back an index expression honestly.
+     */
+    searchName: text('search_name').notNull(),
+    /** The same, for the English name — so "white rice" finds cơm trắng too. */
+    searchNameEn: text('search_name_en').notNull().default(''),
     nameVi: text('name_vi'),
     nameEn: text('name_en').notNull(),
     provider: foodProviderEnum('provider').notNull(),
@@ -47,6 +56,20 @@ export const foods = pgTable(
     fiberPer100g: numeric('fiber_per_100g', { precision: 8, scale: 2 }),
     micronutrients: jsonb('micronutrients').$type<Record<string, number>>(),
     dataQuality: dataQualityEnum('data_quality').notNull().default('medium'),
+    /**
+     * How this row's figures were arrived at — a USDA reference item, a component-derived
+     * recipe estimate, or an external provider payload. Provenance travels with the row
+     * rather than living in a spreadsheet, because the first question about any nutrition
+     * number is where it came from.
+     */
+    sourceReference: text('source_reference'),
+    /**
+     * Tiebreak for ambiguous short queries. A bare "cơm" is a real query and both
+     * *cơm trắng* and *cơm gà* match it equally well on trigrams; without a curated
+     * preference the shorter name wins, which is how "rice" ends up meaning chicken
+     * rice. Higher wins. 0 for everything that is not a common default.
+     */
+    searchPriority: integer('search_priority').notNull().default(0),
     searchVector: tsvector('search_vector'),
     cachedAt: timestamp('cached_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -55,7 +78,9 @@ export const foods = pgTable(
     index('idx_foods_barcode').on(table.barcode).where(sql`${table.barcode} is not null`),
     index('idx_foods_search').using('gin', table.searchVector),
     // pg_trgm — what makes "thit kho" find "thịt kho" without diacritics (migration 0000).
-    index('idx_foods_name_trgm').using('gin', sql`${table.canonicalName} gin_trgm_ops`),
+    // pg_trgm over the normalised column — what makes "thit kho" find "thịt kho".
+    index('idx_foods_search_trgm').using('gin', sql`${table.searchName} gin_trgm_ops`),
+    index('idx_foods_search_en_trgm').using('gin', sql`${table.searchNameEn} gin_trgm_ops`),
     check('chk_food_kcal_nonneg', sql`${table.kcalPer100g} is null or ${table.kcalPer100g} >= 0`),
   ],
 );

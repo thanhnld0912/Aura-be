@@ -226,8 +226,8 @@ describe.skipIf(!hasDatabase)('row level security', () => {
   describe('reference data', () => {
     it('is readable by anyone, because it belongs to nobody', async () => {
       await harness.sql`
-        insert into foods (canonical_name, name_en, provider, external_id)
-        values ('com trang', 'White rice', 'local', 'vn-rice-01')`;
+        insert into foods (canonical_name, search_name, search_name_en, name_en, provider, external_id)
+        values ('com trang', 'com trang', 'white rice', 'White rice', 'local', 'vn-rice-01')`;
 
       const signedIn = await asRlsUser(
         harness.sql,
@@ -246,8 +246,8 @@ describe.skipIf(!hasDatabase)('row level security', () => {
           harness.sql,
           userA,
           (tx) => tx`
-            insert into foods (canonical_name, name_en, provider, external_id)
-            values ('fake', 'Fake', 'local', 'vn-fake-01')`,
+            insert into foods (canonical_name, search_name, search_name_en, name_en, provider, external_id)
+            values ('fake', 'fake', 'fake', 'Fake', 'local', 'vn-fake-01')`,
         ),
       ).rejects.toThrow(/row-level security/i);
     });
@@ -272,7 +272,8 @@ describe.skipIf(!hasDatabase)('row level security', () => {
 
       const withoutRls = rows.filter((row) => row['enabled'] !== true).map((r) => r['table_name']);
       expect(withoutRls).toEqual([]);
-      expect(rows.length).toBe(15);
+      // 15 from Phase 2 plus user_food_aliases from Phase 3.
+      expect(rows.length).toBe(16);
     });
 
     it('has a policy on every table that has RLS enabled', async () => {

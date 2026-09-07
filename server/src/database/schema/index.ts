@@ -19,3 +19,4 @@ export * from './meals.js';
 export * from './workouts.js';
 export * from './habits.js';
 export * from './summaries.js';
+export * from './aliases.js';

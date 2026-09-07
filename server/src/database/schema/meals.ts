@@ -18,7 +18,7 @@ import {
   portionLabelEnum,
 } from './enums.js';
 import { dailyEvents } from './events.js';
-import { foods } from './foods.js';
+import { foodPortions, foods } from './foods.js';
 import { users } from './users.js';
 
 /**
@@ -92,6 +92,12 @@ export const mealItems = pgTable(
       .notNull()
       .references(() => meals.id, { onDelete: 'cascade' }),
     foodId: uuid('food_id').references(() => foods.id, { onDelete: 'set null' }),
+    /**
+     * Which `food_portions` row produced `grams_resolved`. Provenance for the portion,
+     * the same way `source` is provenance for the nutrition. SET NULL because evicting a
+     * portion definition must not rewrite what the user already confirmed.
+     */
+    portionId: uuid('portion_id').references(() => foodPortions.id, { onDelete: 'set null' }),
     detectedName: text('detected_name').notNull(),
     displayNameVi: text('display_name_vi'),
     displayNameEn: text('display_name_en'),

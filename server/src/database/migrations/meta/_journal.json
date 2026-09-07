@@ -29,6 +29,20 @@
       "when": 1788791028526,
       "tag": "0003_rls_policies",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788798869813,
+      "tag": "0004_nutrition_domain",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788798871867,
+      "tag": "0005_aliases_rls",
+      "breakpoints": true
     }
   ]
 }
