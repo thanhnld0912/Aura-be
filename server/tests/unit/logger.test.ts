@@ -7,6 +7,7 @@ const env = (overrides: Record<string, string> = {}) =>
   parseEnv({
     DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/aura',
     CORS_ORIGIN: 'http://localhost:3000',
+    SUPABASE_URL: 'https://project.supabase.co',
     NODE_ENV: 'test',
     ...overrides,
   });

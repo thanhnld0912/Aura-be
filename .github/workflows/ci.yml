@@ -67,16 +67,15 @@ jobs:
       - name: Migrations are idempotent on re-run
         run: npm run db:migrate
 
+      # A skipped test reports as a passing run. Large parts of the suite are gated on
+      # TEST_DATABASE_URL so it stays runnable without Docker locally — in CI every one
+      # of them must execute, or green says nothing about the database layer, RLS or
+      # ownership. One run, then assert over its report.
       - name: Test
-        run: npm test
+        run: npm test -- --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/vitest.json"
 
-      # A skipped test reports as a passing run. The database-backed tests are gated
-      # on TEST_DATABASE_URL so the suite runs without Docker locally — in CI they
-      # must actually execute, or green means nothing for the database layer.
-      - name: Database-backed tests must not skip
-        run: |
-          npx vitest run tests/integration/database.test.ts --reporter=json --outputFile="$RUNNER_TEMP/vitest-db.json"
-          node scripts/assert-tests-ran.mjs "$RUNNER_TEMP/vitest-db.json" 5
+      - name: No test may skip in CI
+        run: node scripts/assert-tests-ran.mjs "$RUNNER_TEMP/vitest.json" 150
 
       - name: Build
         run: npm run build

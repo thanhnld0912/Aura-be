@@ -4,6 +4,7 @@ import { EnvValidationError, parseEnv } from '../../src/config/env.js';
 const minimal = {
   DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/aura',
   CORS_ORIGIN: 'http://localhost:3000',
+  SUPABASE_URL: 'https://project.supabase.co',
 };
 
 describe('parseEnv', () => {
@@ -19,6 +20,11 @@ describe('parseEnv', () => {
 
   it('fails loudly when a required variable is missing', () => {
     expect(() => parseEnv({ CORS_ORIGIN: 'http://localhost:3000' })).toThrow(EnvValidationError);
+  });
+
+  it('requires SUPABASE_URL from Phase 2 — there is no authentication without it', () => {
+    const { SUPABASE_URL, ...withoutSupabase } = minimal;
+    expect(() => parseEnv(withoutSupabase)).toThrow(/SUPABASE_URL/);
   });
 
   it('names the offending variable in the message', () => {

@@ -1,9 +1,14 @@
 import type { FastifyInstance } from 'fastify';
+import { SignJWT } from 'jose';
 import { buildApp } from '../../src/app.js';
 import { parseEnv, type Env } from '../../src/config/env.js';
 import type { Database, Db } from '../../src/database/client.js';
+import type { SupabaseAuthClient } from '../../src/modules/auth/supabase-auth-client.js';
 
 export const TEST_ORIGIN = 'http://localhost:3000';
+export const TEST_SUPABASE_URL = 'https://project.supabase.co';
+export const TEST_JWT_SECRET = 'a-test-jwt-secret-that-is-long-enough-for-hs256';
+export const TEST_ISSUER = `${TEST_SUPABASE_URL}/auth/v1`;
 
 export function testEnv(overrides: Record<string, string> = {}): Env {
   return parseEnv({
@@ -11,9 +16,41 @@ export function testEnv(overrides: Record<string, string> = {}): Env {
     DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/aura_test',
     CORS_ORIGIN: TEST_ORIGIN,
     RATE_LIMIT_ENABLED: 'false',
+    SUPABASE_URL: TEST_SUPABASE_URL,
+    SUPABASE_JWT_SECRET: TEST_JWT_SECRET,
+    SUPABASE_SERVICE_ROLE_KEY: 'test-service-role-key',
     ...overrides,
   });
 }
+
+/**
+ * Mints a token the app's verifier will accept. Tests sign with the same secret the
+ * test env configures, so the whole auth path — signature, iss, aud, exp — runs for
+ * real rather than being stubbed out.
+ */
+export async function signTestToken(options: {
+  sub: string;
+  email?: string | null;
+  expiresIn?: string;
+  issuer?: string;
+  audience?: string;
+}): Promise<string> {
+  const claims: Record<string, unknown> = { role: 'authenticated' };
+  if (options.email !== null) claims['email'] = options.email ?? `${options.sub}@example.com`;
+
+  return new SignJWT(claims)
+    .setProtectedHeader({ alg: 'HS256' })
+    .setSubject(options.sub)
+    .setIssuer(options.issuer ?? TEST_ISSUER)
+    .setAudience(options.audience ?? 'authenticated')
+    .setIssuedAt()
+    .setExpirationTime(options.expiresIn ?? '1h')
+    .sign(new TextEncoder().encode(TEST_JWT_SECRET));
+}
+
+export const bearer = (token: string): { authorization: string } => ({
+  authorization: `Bearer ${token}`,
+});
 
 /**
  * A stand-in for the real database. Mocks live in tests only (Rule 35) — production
@@ -31,12 +68,24 @@ export function stubDatabase(options: { pingFails?: boolean } = {}): Database {
   };
 }
 
+/** Records sign-outs instead of calling Supabase. */
+export function stubSupabaseAuth(): SupabaseAuthClient & { revoked: string[] } {
+  const revoked: string[] = [];
+  return {
+    revoked,
+    async revokeSession(accessToken: string) {
+      revoked.push(accessToken);
+    },
+  };
+}
+
 export async function buildTestApp(
-  options: { env?: Env; database?: Database } = {},
+  options: { env?: Env; database?: Database; supabaseAuth?: SupabaseAuthClient } = {},
 ): Promise<FastifyInstance> {
   return buildApp({
     env: options.env ?? testEnv(),
     database: options.database ?? stubDatabase(),
+    supabaseAuth: options.supabaseAuth ?? stubSupabaseAuth(),
     logger: false,
   });
 }
