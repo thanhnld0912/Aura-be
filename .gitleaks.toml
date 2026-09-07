@@ -1,0 +1,10 @@
+# Secret scanning config, kept in the repo so the scan is reproducible locally and
+# in CI rather than depending on an action's defaults. Any key that has ever touched
+# a commit is treated as compromised and rotated, not un-committed (SECURITY.md §1).
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "server/.env.example carries variable names with empty values only."
+paths = ['''\.env\.example$''']
