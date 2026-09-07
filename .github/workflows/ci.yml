@@ -48,6 +48,14 @@ jobs:
           cache: npm
           cache-dependency-path: server/package-lock.json
 
+      - name: Toolchain versions
+        run: node --version && npm --version
+
+      # Runs before npm ci: a lockfile that is not cross-platform installable
+      # should say so, not surface as EBADPLATFORM halfway through an install.
+      - name: Lockfile integrity
+        run: npm run check:lockfile
+
       - run: npm ci
 
       - name: Typecheck
@@ -80,6 +88,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: server/package-lock.json
+
+      - name: Lockfile integrity
+        run: npm run check:lockfile
+        working-directory: server
 
       - run: npm ci
         working-directory: server

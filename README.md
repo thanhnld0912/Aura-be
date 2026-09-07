@@ -138,7 +138,8 @@ Read in this order:
 ### Backend (this repository)
 
 Requires Node 22+ and a PostgreSQL 16 — either `docker compose up -d db` from the repo root,
-or a Supabase project.
+or a Supabase project. On Node 24+ use npm 11; npm 10 does not run on Node 24
+(see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) §5).
 
 ```bash
 cd server
@@ -159,6 +160,7 @@ curl http://localhost:3001/api/health
 | `npm run typecheck` | `tsc --noEmit`, strict |
 | `npm test` | Vitest. Database-backed tests skip unless `TEST_DATABASE_URL` is set |
 | `npm run build` | Compile to `dist/` and copy migrations |
+| `npm run check:lockfile` | Fails if the lockfile is not cross-platform installable |
 | `npm run db:generate` | Drizzle Kit generates SQL for review — it never applies it |
 | `npm run db:migrate` | Apply committed migrations |
 

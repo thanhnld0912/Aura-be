@@ -12,6 +12,7 @@
     "build": "tsc -p tsconfig.build.json && node scripts/copy-migrations.mjs",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
+    "check:lockfile": "node scripts/check-lockfile.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
@@ -36,5 +37,8 @@
     "tsx": "^4.23.13",
     "typescript": "^5.8.3",
     "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "esbuild": "^0.28.2"
   }
 }

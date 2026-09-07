@@ -150,18 +150,62 @@ Docker Compose covers Postgres only — the API runs on the host for fast reload
 
 ```
 push → GitHub Actions
-  ├── frontend:  npm ci → tsc --noEmit → build
-  ├── server:    npm ci → tsc --noEmit → vitest → build
-  ├── security:  npm audit (fail high/critical) + gitleaks
+  ├── frontend:  npm ci → tsc --noEmit → build            (AURA-FE repository)
+  ├── server:    lockfile gate → npm ci → tsc --noEmit → db:migrate ×2 → vitest → build
+  ├── security:  lockfile gate → npm audit (fail high/critical) + gitleaks
   └── on main:   Vercel (frontend) · Railway (server + cron)
 ```
 
 Migrations run as a **release command before the new container takes traffic**, never at
-application boot — two instances racing `db:migrate` on startup is a corruption path.
+application boot — two instances racing `db:migrate` on startup is a corruption path. CI
+applies them to a throwaway Postgres 16 **twice**, so a migration that is not re-runnable
+fails CI rather than a deploy.
 
 Environments: `local` → `staging` (own Supabase project, real keys, seeded data) →
 `production`. Staging exists specifically so AI prompt changes can be evaluated against
 realistic data before they reach users.
+
+### Toolchain
+
+| | Node | npm |
+|---|---|---|
+| CI | 22.x (`NODE_VERSION` in the workflow) | whatever Node 22 bundles — currently 10.9.x |
+| Local | ≥ 22 | ≥ 11 if on Node 24+ — **npm 10 crashes on Node 24** (`Cannot read properties of null (reading 'edgesOut')`) |
+
+The lockfile is authored on one platform and consumed on another, which is the failure mode
+below. Both npm major versions read the committed `lockfileVersion: 3` lockfile correctly, so
+the versions do not need to match — the *lockfile* has to be right.
+
+### `overrides.esbuild` — why it exists
+
+Four packages pulled esbuild at three different versions: `drizzle-kit` (`^0.25.4`), `tsx`
+(`~0.28.0`), `@esbuild-kit/core-utils` (`~0.18.20`), and `vite` 8, which declares esbuild as an
+**optional peer** (`^0.27.0 || ^0.28.0`). Because esbuild was already in the tree at 0.25 —
+outside that range — npm installed a second copy under `vitest/`, then wrote those 27 packages
+into the lockfile marked `extraneous` and, critically, **without `optional: true`** on the 26
+`@esbuild/*` platform binaries.
+
+`npm ci` therefore treated `@esbuild/aix-ppc64` as mandatory and failed with `EBADPLATFORM`
+on every platform that is not AIX/ppc64 — including CI's Linux x64, before a single check ran.
+(npm 11 silently prunes such entries, which is why it only broke in CI.)
+
+`"overrides": { "esbuild": "^0.28.2" }` collapses all four to one hoisted, correctly-flagged
+copy. It also removes 77 duplicate packages and clears the four moderate advisories that the
+0.18.20 copy carried, since they were all `esbuild <= 0.24.2` (GHSA-67mh-4wv8-2f99).
+
+Two dependencies are pinned past their declared range by this — `drizzle-kit` (`^0.25.4`) and
+`@esbuild-kit/core-utils` (`~0.18.20`). Both are verified: `drizzle-kit generate` bundles
+`drizzle.config.ts` through esbuild and works, and the full suite and build pass.
+
+### `npm run check:lockfile`
+
+Runs in **both** jobs, before `npm ci`. It fails on any lockfile entry that is `extraneous`
+or that is `os`/`cpu`-gated without `optional: true` — the two shapes that produce an
+`EBADPLATFORM` on a machine other than the one that authored the lockfile. A clear message at
+second zero beats a confusing install failure two minutes in.
+
+If it ever fires: `rm -rf node_modules package-lock.json && npm install`, and if the entries
+come back, deduplicate the offending package with an `overrides` entry as above.
 
 ---
 

@@ -11,4 +11,6 @@
 *.ts         text eol=lf
 *.md         text eol=lf
 *.yml        text eol=lf
-package-lock.json linguist-generated=true -diff
+# Collapsed in review by default, but still diffable — a lockfile diff is exactly
+# what was needed to diagnose the EBADPLATFORM failure (DEPLOYMENT.md §5).
+package-lock.json linguist-generated=true
