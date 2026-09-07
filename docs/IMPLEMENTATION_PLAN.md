@@ -115,27 +115,40 @@ nutrition columns of `daily_summaries` stay null rather than being filled with a
 
 ---
 
-## Phase 3 — Nutrition
+## Phase 3 — Nutrition ✅ COMPLETE
 
 **Goal:** real nutrition numbers with provenance, no AI involved.
 
-- `NutritionProvider` interface + resolver chain
-- `LocalFoodProvider` + **~300-row Vietnamese food dataset with `food_portions`** ← the long pole
-- `UsdaProvider`, `OpenFoodFactsProvider` (with the required User-Agent), caching into `foods`
-- `pg_trgm` fuzzy matching over diacritic-stripped names
-- `FoodResolver` (7-step chain), `PortionResolver`, `NutritionCalculator`
-- Confidence assembly (weighted-minimum meal confidence)
-- `user_food_aliases` learning loop
-- Endpoints: `/nutrition/search`, `/barcode/:code`, `/calculate`, `/daily`
-- `POST /api/meals` (quick add / manual) + `/meals/:id/confirm`
+- [x] `NutritionProvider` interface + resolver chain
+- [x] `LocalFoodProvider` + **Vietnamese food dataset with `food_portions`** —
+      183 foods, 299 portions, 17 categories (short of the ~300 estimate; see below)
+- [x] `UsdaProvider`, `OpenFoodFactsProvider` (with the required User-Agent), caching into `foods`
+- [x] `pg_trgm` fuzzy matching over diacritic-stripped names
+- [x] `FoodResolver`, `PortionResolver`, `NutritionCalculator`
+- [x] Confidence assembly (weighted-minimum meal confidence)
+- [x] `user_food_aliases` learning loop
+- [x] Endpoints: `/nutrition/search`, `/calculate`, `/daily`, `/weekly`
+- [x] `POST /api/meals` (manual) + `/meals/:id/confirm`, plus `/meals/parse`
+- [ ] `GET /nutrition/barcode/:code` — provider support exists, no route until a scanner consumes it
 
 **Done when:** `"2 chén cơm + thịt kho"` resolves to real grams and real macros with per-item
-sources, and an unresolvable item returns `kcal: null` rather than a guess.
+sources, and an unresolvable item returns `kcal: null` rather than a guess. — *verified.
+2 chén resolves to 300 g and 390 kcal through the household portion; an unknown food returns
+`kcal: null`, `source: 'unresolved'` and a null meal total.*
 
-**Budget realistically for the dataset.** Authoring 300 Vietnamese foods with credible
-per-100g values and household portions is genuine research work, not data entry. It is also
-the single highest-leverage asset in the product — no competitor's USDA-only tracker can
-resolve *cá kho tộ*.
+**Decisions recorded** in `NUTRITION_ARCHITECTURE.md` §10, `API_DESIGN.md` §20 and
+`DATABASE_DESIGN.md` §3.10: the search design (`word_similarity` to filter, `similarity` to
+rank), `search_priority`, `ml`-as-grams, the parser boundary, and calorie omission.
+
+**The dataset is 183 foods, not 300.** Authoring a food is a judgement about a recipe, not
+data entry, and padding with variations to reach a round number is what makes a food database
+useless. What exists covers the categories the brief names and every dish it lists by example.
+The remaining ~120 is real work, and the honest next step is validating the existing rows
+against Vietnamese National Institute of Nutrition tables before adding more.
+
+**No AI in this phase.** Natural-language parsing ships as `RuleBasedMealParser` — deterministic,
+no model, no network. `MealParser` is the interface Claude implements in Phase 4, and its
+output type has no field capable of holding a nutrition value.
 
 ---
 

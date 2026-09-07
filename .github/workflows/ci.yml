@@ -67,6 +67,13 @@ jobs:
       - name: Migrations are idempotent on re-run
         run: npm run db:migrate
 
+      # Reference data loads from a clean database, and loads again without duplicating.
+      - name: Seed the Vietnamese food dataset
+        run: npm run db:seed
+
+      - name: Seeding is idempotent on re-run
+        run: npm run db:seed
+
       # A skipped test reports as a passing run. Large parts of the suite are gated on
       # TEST_DATABASE_URL so it stays runnable without Docker locally — in CI every one
       # of them must execute, or green says nothing about the database layer, RLS or

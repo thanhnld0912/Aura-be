@@ -700,3 +700,43 @@ any schema, so sending it fails loudly instead of being ignored.
 **`GET /api/daily-plan/comparison`** reconciles before answering, so it never returns a stale
 adherence value. `adherencePct` counts `on_time`, `shifted` and `substituted` alike over
 resolved items only — see `DATABASE_DESIGN.md` §3.9.
+
+---
+
+## 20. Phase 3 additions
+
+**Implemented.** `/api/meals` (`POST`, `POST /parse`, `GET /today`, `GET /:id`, `PATCH /:id`,
+`POST /:id/confirm`, `DELETE /:id`), `/api/nutrition` (`GET /search`, `POST /calculate`,
+`GET /daily`, `GET /weekly`).
+
+**Still deferred.** `POST /api/meals/analyze-image` and the Gemini pipeline are Phase 4.
+`GET /api/nutrition/barcode/:code` has provider support (`OpenFoodFactsProvider.getByBarcode`)
+but no route, because nothing consumes it until the scanner UI exists. `GET /api/meals/frequent`
+has repository support and no route, for the same reason.
+
+**No meal input schema contains a nutrition field.** Not `kcal`, not `protein`, not `grams` —
+a request says *what* and *how much*, and the server does the rest. Combined with `.strict()`,
+a client attempting `{ "calories": 900 }` receives a `400`, so the rule is enforced by the
+type system rather than by convention.
+
+**`GET /api/nutrition/search` is unauthenticated**, alongside `/api/health`. Food data is
+public reference material, not user content.
+
+**`showCalories: false` omits the field** from every meal, daily and weekly payload rather
+than nulling it. See `NUTRITION_ARCHITECTURE.md` §10.
+
+**`GET /api/nutrition/weekly`** returns totals and averages over *days actually logged*, not
+over seven. Dividing by seven would report a drop that describes the tracking rather than the
+eating. It contains no interpretation — Phase 4 reads these facts, it does not get to invent
+them.
+
+**Meal lifecycle.** `draft` has no event and appears in no total; `confirmed` has an event
+and is on the timeline. `POST /meals/parse` always produces a draft, because parsing is the
+least certain step and its output is something the user reviews rather than something that
+silently becomes their data. `PATCH /meals/:id` pins every item to confidence 1.0 — the user
+outranks every provider — and writes a `user_food_aliases` row so the same phrase resolves
+correctly next time.
+
+**Unresolved items** carry `kcal: null` and appear in the response's `unresolved[]`. A meal
+total containing an unresolved item is itself `null` rather than the sum of what happened to
+resolve.

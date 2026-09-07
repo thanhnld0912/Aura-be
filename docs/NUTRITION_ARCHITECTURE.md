@@ -289,3 +289,79 @@ it could be any of a dozen dishes. The UI surfaces that, the user picks the spec
 alias is written, and next time it resolves at 0.95.
 
 **That loop — ambiguity surfaced, user corrects, system learns — is the whole design.**
+
+---
+
+## 10. Phase 3 implementation notes
+
+What shipped, and where the implementation decided something this document left open.
+
+### The dataset, honestly
+
+**183 foods and 299 portions**, not the ~300 §3 estimated. The shortfall is deliberate:
+padding with variations to reach a round number is exactly what makes a food database
+useless, and every row here is a distinct dish someone would actually log. The gap is real
+work remaining, not a rounding error — see Known limitations in the Phase 3 report.
+
+Provenance is a column, not a convention. `foods.source_reference` is required for every
+local row and states the basis:
+
+| `data_quality` | Rows | Basis |
+|---|---|---|
+| `high` | 64 | Single-ingredient foods whose composition is stable across sources; values consistent with USDA FoodData Central standard-reference entries |
+| `medium` | 110 | Composed Vietnamese dishes, summed from a typical recipe's ingredients and divided by finished weight |
+| `low` | 9 | Dishes and sweetened drinks whose recipe varies so widely the figure is an order of magnitude |
+
+**These are not laboratory measurements**, and the dataset says so in the file header. They
+have not been checked against the Vietnamese National Institute of Nutrition composition
+tables, which is the right source for production and the obvious next improvement.
+
+### Search
+
+`foods.search_name` and `search_name_en` hold the diacritic-free forms. Normalisation runs
+in TypeScript rather than SQL, because `unaccent()` is only STABLE and cannot honestly back
+an index expression; `đ` needs an explicit rule, since NFD does not decompose it.
+
+The query took two attempts. **Filtering uses `word_similarity`, ranking uses `similarity`.**
+Plain similarity compares whole strings, so `similarity('com', 'com trang')` sits far below
+any usable threshold and "cơm" found no rice at all. Ranking then prefers the shorter name,
+which is how "rice" came to mean *cơm gà* — hence `foods.search_priority`, a curated
+tiebreak applied only when the query matches as complete words.
+
+### Portions
+
+`ml` is treated as grams. Accurate for water-like liquids and the convention the per-100g
+figures already assume; stated here rather than buried.
+
+Fallback grams when a food has no portion for the requested unit: bowl 200, plate 250,
+serving 150, piece 60. Applied only after the food's own portions have been tried, and
+always at reduced confidence.
+
+### Parsing
+
+`MealParser` is an interface whose output type has **no field capable of holding a nutrition
+value**. That is the boundary, and it is structural rather than advisory: whatever reads the
+sentence — the rule-based parser today, Claude in Phase 4 — can say "two bowls of cơm" and
+has no channel through which to assert that this is 390 kcal.
+
+Phase 3 ships `RuleBasedMealParser`: deterministic, no model, no network, no key. It handles
+quantities (digits, fractions, Vietnamese number words), household measures, size
+adjectives, and the connectives that separate foods. Where it cannot read a fragment it
+returns it in `ambiguous` rather than guessing.
+
+One implementation detail worth recording: the connective split cannot use `\b`. JavaScript
+word boundaries are ASCII-only, so `\bvà\b` never matches — `à` is not a word character to
+the engine, leaving no boundary after it, and "cơm và trứng" stayed a single fragment.
+
+### Calorie visibility
+
+`showCalories: false` **omits the key from the payload** rather than nulling it. Energy is
+`.optional()` in the response schema and the serializer only emits declared keys, so the
+number never reaches the browser. Covered by a test that asserts the value appears nowhere
+in the meal, daily or weekly responses.
+
+### What AI does and does not do in Phase 3
+
+Nothing. No model is called anywhere in this phase. The pipeline is parse → resolve →
+calculate, and every step is deterministic and reproducible. Phase 4 replaces the parser and
+adds vision *behind the same interfaces*, and inherits the same constraint.

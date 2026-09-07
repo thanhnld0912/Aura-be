@@ -71,16 +71,17 @@ only over HTTPS, and never touches the database or an AI provider directly.
 
 ## Status
 
-**Phase 2 (Core data) complete.** The Planned-vs-Actual spine is live: a user can be
-authenticated, hold a plan, log what actually happened, and read the difference.
+**Phase 3 (Nutrition) complete.** Meals resolve to real numbers from a real database, with
+provenance and confidence on every figure — and no model anywhere in the pipeline.
 
 | | |
 |---|---|
 | Frontend | Complete UI prototype in `AURA-FE` — not yet wired to the API (Phase 6) |
-| Backend | Auth, users, daily plans, daily events, check-ins, reconciliation, daily summaries |
-| Database | 15 tables, RLS on every one, three reviewed migrations |
-| Tests | 193 passing — 84 against a real PostgreSQL, covering auth, ownership and RLS |
-| Next | Phase 3 — nutrition: real numbers with provenance, still no AI |
+| Backend | Auth, plans, events, check-ins, reconciliation, summaries, **meals and nutrition** |
+| Database | 16 tables, RLS on every one, five reviewed migrations |
+| Food data | 183 Vietnamese and common foods, 299 household portions, every row sourced |
+| Tests | 307 passing — 117 against a real PostgreSQL |
+| Next | Phase 4 — AI: vision and reasoning, both schema-validated |
 
 ---
 
@@ -147,6 +148,7 @@ cd server
 npm install
 cp .env.example .env          # DATABASE_URL and CORS_ORIGIN are the only required values today
 npm run db:migrate            # applies committed SQL; never run at app boot
+npm run db:seed               # loads the Vietnamese food dataset
 npm run dev                   # http://localhost:3001
 ```
 
@@ -164,6 +166,7 @@ curl http://localhost:3001/api/health
 | `npm run check:lockfile` | Fails if the lockfile is not cross-platform installable |
 | `npm run db:generate` | Drizzle Kit generates SQL for review — it never applies it |
 | `npm run db:migrate` | Apply committed migrations |
+| `npm run db:seed` | Load the Vietnamese food dataset (idempotent) |
 
 ### Frontend
 

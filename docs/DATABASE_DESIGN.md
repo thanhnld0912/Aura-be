@@ -535,6 +535,31 @@ and 09:00 with one event at 08:50 give the event to the 09:00 item as `on_time` 
 to the 08:00 item as `shifted`. Ordering is fully specified — tier, distance, then ids — so
 equidistant candidates cannot flip between runs.
 
+
+### 3.10 Phase 3 schema additions
+
+- **`user_food_aliases`** — the personalisation loop from `NUTRITION_ARCHITECTURE.md` §4
+  step 1, finally created. Unique on `(user_id, alias_normalized)`, RLS-scoped like every
+  other user-owned table.
+- **`foods.search_name` / `search_name_en`** — diacritic-free forms with their own trigram
+  indexes. The original `idx_foods_name_trgm` over `canonical_name` is dropped: matching
+  against a name with diacritics defeats the purpose.
+- **`foods.source_reference`** — provenance for every row. Required for local data.
+- **`foods.search_priority`** — curated tiebreak for ambiguous bare terms ("cơm" is
+  *cơm trắng*, not *cơm gà*). Applies only when the query matches as complete words.
+- **`meal_items.portion_id`** — which `food_portions` row produced `grams_resolved`.
+  Provenance for the portion, the way `source` is provenance for the nutrition.
+  `ON DELETE SET NULL`, because evicting a portion definition must not rewrite what the
+  user confirmed.
+
+The `search_name` backfill in `0004` is written defensively — `ADD COLUMN … NOT NULL` with
+no default fails the moment the table is not empty, and a migration that only works on an
+empty table is a trap for staging.
+
+**Nutrition snapshots are load-bearing, and now tested.** `meal_items` stores denormalised
+values; a test revises a food's `kcal_per_100g` to 999 and asserts the historical meal is
+unchanged. Nutrition history is an audit record, not a live join.
+
 ---
 
 ## 4. Indexes
