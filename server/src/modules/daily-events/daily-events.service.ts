@@ -109,6 +109,31 @@ export class DailyEventsService {
     return created;
   }
 
+  /**
+   * Creates the timeline event for a confirmed meal.
+   *
+   * `POST /api/events` deliberately refuses `meal`, because it cannot populate the detail
+   * row and would leave orphan events behind. The meals module owns that pairing, and
+   * this is the one door it comes through — still inside the events module, so
+   * `daily_events` keeps a single writer.
+   */
+  async createMealEvent(
+    userId: string,
+    timeZone: string,
+    input: { title: string; occurredAt: Date; note?: string | undefined },
+  ): Promise<DailyEventRow> {
+    return this.repository.create({
+      userId,
+      localDate: toLocalDate(input.occurredAt, timeZone),
+      type: 'meal',
+      occurredAt: input.occurredAt,
+      title: input.title,
+      note: input.note ?? null,
+      inputMethod: 'manual',
+      source: 'user',
+    });
+  }
+
   async get(userId: string, id: string): Promise<DailyEventRow> {
     const found = await this.repository.findById(userId, id);
     if (!found) throw new NotFoundError();
