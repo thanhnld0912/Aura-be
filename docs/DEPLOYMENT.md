@@ -144,6 +144,24 @@ Nothing requires the two checkouts to sit side by side on disk. The only couplin
 Postgres locally via Docker (`docker compose up db`) or a Supabase free project.
 Docker Compose covers Postgres only — the API runs on the host for fast reload.
 
+### Running the database-backed tests
+
+Most of the suite needs a real PostgreSQL 16. It is gated on `TEST_DATABASE_URL` so the suite
+still runs without one; CI sets it and fails the build if a single test skips there.
+
+```bash
+docker compose up -d db          # from the repo root
+cd server
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/aura npm run db:migrate
+TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/aura npm test
+docker compose down
+```
+
+Any PostgreSQL 16 will do — Docker is convenient, not required. The suite creates the
+non-owner role its RLS tests need and truncates between tests, so it is safe to point at a
+throwaway database and re-run.
+
+
 ---
 
 ## 5. CI/CD

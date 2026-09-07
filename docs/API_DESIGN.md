@@ -664,3 +664,39 @@ Buckets are per-user (from the JWT), falling back to IP only for unauthenticated
 
 Every one of the 16 identified integration points has a defined endpoint. No endpoint in this
 specification exists without a consumer.
+
+---
+
+## 19. Phase 2 implementation notes
+
+What shipped, and where the implementation pinned down something this document left open.
+
+**Implemented.** `/api/health`, `/api/auth/{session,me,logout}`, `/api/users/me{,/preferences}`,
+`/api/daily-plan{,/:id,/comparison}`, `/api/events{,/today,/:id}`, `/api/checkins`.
+
+**Not implemented, by phase.** `/api/daily-plan/generate` needs Claude (Phase 4). `/api/meals/*`
+and `/api/nutrition/*` are Phase 3. `/api/workouts/*` and `/api/habits/*` have their tables but
+not their endpoints. `/api/insights/*`, `/api/patterns/*` and `/api/agent/*` are Phases 4–5.
+`/api/groups/*` is Phase 8.
+
+**`POST /api/events` accepts only `walk`, `water`, `sleep`, `habit` and `custom`.** §7 calls it
+the logger "for types without a richer endpoint"; `meal` and `workout` own detail tables this
+endpoint cannot populate, and accepting them would create events with no detail row. `checkin`
+has its own upsert-per-day endpoint. The rejected types return `400`.
+
+**`DELETE /api/users/me` returns** `{ "status": "scheduled", "hardDeleteAfterDays": 30 }` —
+soft-deleted immediately, hard-deleted by a Phase 5 job. A soft-deleted account cannot
+authenticate again even though Supabase keeps issuing valid tokens for it.
+
+**`POST /api/checkins` returns `201` on create and `200` on update**, since it is an upsert.
+
+**Pagination cursors** are an opaque base64url encoding of `(occurredAt, id)`. A malformed
+cursor is a `400`, not a silently ignored parameter.
+
+**Every request body is `.strict()`.** An unknown key is a `400`, which is what makes
+"a client cannot send `userId`" a test rather than a convention: the field does not exist in
+any schema, so sending it fails loudly instead of being ignored.
+
+**`GET /api/daily-plan/comparison`** reconciles before answering, so it never returns a stale
+adherence value. `adherencePct` counts `on_time`, `shifted` and `substituted` alike over
+resolved items only — see `DATABASE_DESIGN.md` §3.9.

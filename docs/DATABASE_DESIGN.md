@@ -501,6 +501,40 @@ primary health metric for prompt changes.
 
 `request_meta` deliberately excludes raw prompts and any PII.
 
+### 3.9 Phase 2 implementation notes
+
+Decisions taken while building the schema that this document did not previously pin down:
+
+**Columns added.** `users.deleted_at` (the `DELETE /api/users/me` soft delete needs it, and
+that endpoint is Phase 2); `daily_events.metrics` (named in §3.2 and accepted by
+`POST /api/events`, but absent from the ERD column list); `daily_events.updated_at` (the
+`PATCH` endpoint needs it).
+
+**Foreign keys deferred.** `daily_plans.generated_by_ai_run` and `daily_summaries.ai_run_id`
+exist as columns without their constraint, because `ai_runs` arrives in Phase 4. The FK is
+added then — one constraint, no data migration.
+
+**Enums are real PostgreSQL enums**, not text with a comment, so a bad categorical value
+fails on write rather than surfacing months later in an aggregate.
+
+**`shift_minutes` is recorded whenever an event is linked**, not only when the item is
+`shifted`. §3.3 mentions it under `shifted`, but the delta is a fact about what happened and
+"40 minutes late, still inside the window" is worth keeping. It is signed: negative is early.
+
+**Substitution affinity.** §3.3 gives one example — planned gym, logged walk — without a
+general rule. The implementation substitutes only within a named affinity group, and at MVP
+the only group is movement (`workout` ↔ `walk`). A planned meal is never satisfied by a
+workout. Extending it is one entry in `SUBSTITUTION_GROUPS`.
+
+**`adherence_pct`** counts `on_time`, `shifted` and `substituted` alike — each is the user
+having done the thing — over *resolved* items only, so a plan does not read as 0% at
+breakfast time. `null` when nothing has resolved yet.
+
+**Reconciliation assignment is global best-first**, not greedy in plan order: items at 08:00
+and 09:00 with one event at 08:50 give the event to the 09:00 item as `on_time` rather than
+to the 08:00 item as `shifted`. Ordering is fully specified — tier, distance, then ids — so
+equidistant candidates cannot flip between runs.
+
 ---
 
 ## 4. Indexes
@@ -609,6 +643,45 @@ repository layer. RLS exists so that a leaked anon key cannot read another user'
 it is the second lock, not the first.
 
 `foods` is world-readable (public reference data). `groups` uses a membership-based policy.
+
+### Implemented in Phase 2
+
+All fifteen tables have RLS enabled and a policy (`0003_rls_policies`).
+
+**Two locks, deliberately independent.** The first is the repository layer: every query is
+scoped to the `userId` taken from the verified JWT. The second is RLS. They are not
+redundant — they defend different doors. The repository protects the API; RLS protects the
+database from anything that reaches it *without* going through the API, which on Supabase
+means a leaked anon key hitting PostgREST, since the platform grants `anon` and
+`authenticated` access to new tables in `public` by default.
+
+**`FORCE ROW LEVEL SECURITY` is deliberately not set.** Forcing it would subject the
+backend's own connection to the policies, which would mean propagating JWT claims onto
+pooled connections with `SET LOCAL` on every request — a cross-request leak hazard, and a
+design that makes authorization depend on connection state rather than on the query. The
+architecture keeps authorization in the repository layer precisely to avoid that.
+
+**Policy shape.** Each is `FOR ALL` with both `USING` and `WITH CHECK`, which is exactly
+equivalent to four separate policies: `USING` gates the rows `SELECT`/`UPDATE`/`DELETE` can
+see, `WITH CHECK` gates the rows `INSERT`/`UPDATE` may produce. `WITH CHECK` is what stops a
+user reassigning their own row to somebody else. Child tables (`plan_items`, `meal_items`,
+`workout_exercises`) carry no `user_id` and scope through an `EXISTS` on their parent, so a
+row is never reachable by a route its owner is not on. `foods` and `food_portions` are
+readable by all and writable only by the table owner — they have no write policy at all.
+
+**`auth.uid()` portability.** The policies are written against Supabase's `auth.uid()`, which
+plain PostgreSQL does not have, so local and CI databases could neither apply nor test them.
+Migration `0002_auth_uid_shim` creates the function only when absent — a no-op on Supabase,
+never clobbering the platform's own — reading `sub` from `request.jwt.claims`. It returns
+`NULL` when no claim is set, and `user_id = NULL` is never true, so **every policy denies by
+default** for an unauthenticated connection.
+
+**How it is tested.** `tests/integration/rls.test.ts` does not go through the API, because
+the API's connection bypasses these policies. It connects as a non-owner role with
+`request.jwt.claims` set on the transaction — exactly how Supabase evaluates a PostgREST
+request — and asserts that user A cannot read, update, delete or insert user B's rows in
+either direction, that an unauthenticated connection sees nothing at all, and that every
+table has RLS enabled with at least one policy.
 
 ---
 

@@ -72,27 +72,46 @@ gated on `TEST_DATABASE_URL` and run against Postgres 16 in CI.*
 
 ---
 
-## Phase 2 — Core data
+## Phase 2 — Core data ✅ COMPLETE
 
 **Goal:** the Planned-vs-Actual spine exists and is exercisable.
 
-- Schema + migrations: `users`, `user_preferences`, `daily_plans`, `plan_items`,
-  `daily_events`, `meals`, `meal_items`, `foods`, `food_portions`, `workout_sessions`,
-  `workout_exercises`, `habits`, `habit_logs`, `checkins`
-- Supabase Auth: JWT verification, JIT user provisioning, `POST /api/auth/session`
-- RLS policies + policy tests
-- Modules: `auth`, `users`, `daily-plans`, `daily-events`, `checkins`
-- **Reconciliation engine** — `plan_items.adherence` (`on_time`/`shifted`/`substituted`/
-  `not_logged`), never mutating the plan
-- `daily_summaries` recompute on write
-- Seed: system habits
+- [x] Schema + migrations: 15 tables (`0001_core_schema`), generated from the Drizzle
+      definitions and reviewed against `DATABASE_DESIGN.md` §2/§4/§5
+- [x] Supabase Auth: JWT verification (HS256 **and** JWKS), JIT provisioning,
+      `POST /api/auth/session`
+- [x] RLS policies + policy tests (`0002_auth_uid_shim`, `0003_rls_policies`) — all 15
+      tables, tested through a non-owner role rather than through the API
+- [x] Modules: `auth`, `users`, `daily-plans`, `daily-events`, `checkins`
+- [x] **Reconciliation engine** — `on_time` / `shifted` / `substituted` / `not_logged`,
+      deterministic, no AI, and it never mutates the plan
+- [x] `daily_summaries` recompute on write
+- [x] Seed: system habits, created per user at provisioning
 
-**Done when:** a plan can be created, an event logged, and
-`GET /api/daily-plan/comparison` returns a correct `shifted`/`substituted` classification.
+**Decisions this phase pinned down**, all recorded in the affected document:
 
-**This is the phase that most determines whether AURA works.** Everything downstream —
-patterns, insights, the weekly story — is a function of the plan/actual delta being modelled
-correctly. Do not rush it to reach the AI phases.
+1. **RLS is the second lock, not the first** (`DATABASE_DESIGN.md` §6). Ownership is
+   enforced in the repository layer from the token's `sub`; RLS defends the database
+   against anything reaching it without going through the API. `FORCE ROW LEVEL SECURITY`
+   is deliberately not set — forcing it would put JWT claims on pooled connections, which
+   is a cross-request leak hazard.
+2. **`auth.uid()` shim** so the same policies apply and test on plain PostgreSQL.
+3. **Substitution affinity, `shift_minutes` on every link, and `adherence_pct` semantics**
+   (`DATABASE_DESIGN.md` §3.9) — the reconciliation rules §3.3 left open.
+4. **`POST /api/events` accepts only the types without a detail table**
+   (`API_DESIGN.md` §19).
+5. **A soft-deleted account cannot be resurrected** by the provisioning upsert.
+6. **A verified token with no email claim is rejected** — AURA supports email and OAuth
+   sign-in, and a half-formed user row is worse than a clear refusal.
+
+**Done when:** a plan can be created, an event logged, and `GET /api/daily-plan/comparison`
+returns a correct `shifted`/`substituted` classification. — *verified. 193 tests pass, 84 of
+them against a real PostgreSQL 16 covering authentication, ownership, RLS and the
+plan/actual spine.*
+
+**Not in this phase, by design:** no AI and no nutrition. `meals`, `meal_items`, `foods`,
+`food_portions` and the workout tables exist as schema but nothing writes to them, and the
+nutrition columns of `daily_summaries` stay null rather than being filled with a guess.
 
 ---
 

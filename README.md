@@ -71,15 +71,16 @@ only over HTTPS, and never touches the database or an AI provider directly.
 
 ## Status
 
-**Phase 1 (Backend foundation) complete.** The server boots, is hardened, is observable, and
-deliberately does nothing else yet.
+**Phase 2 (Core data) complete.** The Planned-vs-Actual spine is live: a user can be
+authenticated, hold a plan, log what actually happened, and read the difference.
 
 | | |
 |---|---|
-| Frontend | Complete UI prototype in `AURA-FE` — no backend, DB, API, AI, or auth |
-| Backend | Fastify 5 running: config, security middleware, error envelope, `GET /api/health` |
-| Database | Connected; extensions migration applied. Table schema lands in Phase 2 |
-| Next | Phase 2 — the Planned-vs-Actual spine and Supabase Auth |
+| Frontend | Complete UI prototype in `AURA-FE` — not yet wired to the API (Phase 6) |
+| Backend | Auth, users, daily plans, daily events, check-ins, reconciliation, daily summaries |
+| Database | 15 tables, RLS on every one, three reviewed migrations |
+| Tests | 193 passing — 84 against a real PostgreSQL, covering auth, ownership and RLS |
+| Next | Phase 3 — nutrition: real numbers with provenance, still no AI |
 
 ---
 
