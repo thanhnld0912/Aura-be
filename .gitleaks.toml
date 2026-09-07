@@ -6,5 +6,16 @@
 useDefault = true
 
 [allowlist]
-description = "server/.env.example carries variable names with empty values only."
-paths = ['''\.env\.example$''']
+description = "Known non-secrets."
+paths = [
+  # Variable names with empty values only.
+  '''\.env\.example$''',
+]
+regexes = [
+  # A fixed HS256 signing key used by the test suite to mint tokens the real verifier
+  # accepts (server/tests/helpers/app.ts). Allowlisted by exact value rather than by
+  # path, because gitleaks scans history and the inline `gitleaks:allow` comments only
+  # apply from the commit that added them. Nothing else in a test file is exempt.
+  '''a-test-jwt-secret-that-is-long-enough-for-hs256''',
+  '''a-different-secret-entirely-not-the-real-one''',
+]

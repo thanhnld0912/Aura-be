@@ -47,6 +47,9 @@ export interface ListEventsFilter {
   cursor?: { occurredAt: Date; id: string };
 }
 
+const toDate = (epochSeconds: number | null | undefined): Date | null =>
+  epochSeconds === null || epochSeconds === undefined ? null : new Date(epochSeconds * 1000);
+
 export class DailyEventsRepository {
   constructor(private readonly db: Db) {}
 
@@ -179,12 +182,18 @@ export class DailyEventsRepository {
             filter (where ${dailyEvents.type} = 'water'), 0)::float8`,
         sleepMinutes: sql<number | null>`
           sum(${dailyEvents.durationMin}) filter (where ${dailyEvents.type} = 'sleep')::int`,
-        firstMealOccurredAt: sql<Date | null>`
-          min(${dailyEvents.occurredAt}) filter (where ${dailyEvents.type} = 'meal')`,
-        lastMealOccurredAt: sql<Date | null>`
-          max(${dailyEvents.occurredAt}) filter (where ${dailyEvents.type} = 'meal')`,
-        bedtimeOccurredAt: sql<Date | null>`
-          min(${dailyEvents.occurredAt}) filter (where ${dailyEvents.type} = 'sleep')`,
+        // Epoch seconds rather than the timestamptz itself: a raw `sql` fragment has no
+        // column type for the driver to parse, so a timestamp comes back as a Postgres
+        // display string that `new Date()` cannot reliably read. A number is unambiguous.
+        firstMealEpoch: sql<number | null>`
+          extract(epoch from min(${dailyEvents.occurredAt})
+            filter (where ${dailyEvents.type} = 'meal'))::float8`,
+        lastMealEpoch: sql<number | null>`
+          extract(epoch from max(${dailyEvents.occurredAt})
+            filter (where ${dailyEvents.type} = 'meal'))::float8`,
+        bedtimeEpoch: sql<number | null>`
+          extract(epoch from min(${dailyEvents.occurredAt})
+            filter (where ${dailyEvents.type} = 'sleep'))::float8`,
       })
       .from(dailyEvents)
       .where(
@@ -201,9 +210,9 @@ export class DailyEventsRepository {
       mealsLogged: row?.mealsLogged ?? 0,
       waterMl: row?.waterMl ?? 0,
       sleepMinutes: row?.sleepMinutes ?? null,
-      firstMealAt: row?.firstMealOccurredAt ?? null,
-      lastMealAt: row?.lastMealOccurredAt ?? null,
-      bedtimeAt: row?.bedtimeOccurredAt ?? null,
+      firstMealAt: toDate(row?.firstMealEpoch),
+      lastMealAt: toDate(row?.lastMealEpoch),
+      bedtimeAt: toDate(row?.bedtimeEpoch),
     };
   }
 

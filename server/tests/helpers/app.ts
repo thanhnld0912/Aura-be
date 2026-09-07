@@ -7,7 +7,9 @@ import type { SupabaseAuthClient } from '../../src/modules/auth/supabase-auth-cl
 
 export const TEST_ORIGIN = 'http://localhost:3000';
 export const TEST_SUPABASE_URL = 'https://project.supabase.co';
-export const TEST_JWT_SECRET = 'a-test-jwt-secret-that-is-long-enough-for-hs256';
+// Not a secret: a fixed HS256 signing key so tests can mint tokens the real verifier
+// accepts. Flagged by the generic-api-key rule purely for looking like one.
+export const TEST_JWT_SECRET = 'a-test-jwt-secret-that-is-long-enough-for-hs256'; // gitleaks:allow
 export const TEST_ISSUER = `${TEST_SUPABASE_URL}/auth/v1`;
 
 export function testEnv(overrides: Record<string, string> = {}): Env {

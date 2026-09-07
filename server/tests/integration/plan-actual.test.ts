@@ -20,8 +20,10 @@ describe.skipIf(!hasDatabase)('plan vs actual', () => {
   let token: string;
   const userId = testUserId('a');
 
-  // A past date, so the day is closed and unmatched items resolve to not_logged.
-  const DATE = '2026-09-07';
+  // Fixed and firmly in the past, so the local day is always closed and an unmatched
+  // item resolves to not_logged rather than pending. Using "today" here would make the
+  // suite depend on when it runs.
+  const DATE = '2026-03-04';
 
   beforeAll(async () => {
     harness = await createDatabaseHarness();
@@ -40,7 +42,7 @@ describe.skipIf(!hasDatabase)('plan vs actual', () => {
   /** Vietnam is UTC+7, so a local wall-clock time is that time minus seven hours. */
   const utcFor = (localTime: string): string => {
     const [h, m] = localTime.split(':').map(Number) as [number, number];
-    return new Date(Date.UTC(2026, 8, 7, h - 7, m)).toISOString();
+    return new Date(Date.UTC(2026, 2, 4, h - 7, m)).toISOString();
   };
 
   const createPlan = (items: unknown[]) =>
@@ -66,7 +68,7 @@ describe.skipIf(!hasDatabase)('plan vs actual', () => {
       headers: bearer(token),
     });
 
-  it('creates a plan and starts every item pending', async () => {
+  it('creates a plan, and a closed day with no events resolves to not_logged', async () => {
     const created = await createPlan([
       { eventType: 'walk', title: 'Morning walk', plannedTime: '07:00' },
       { eventType: 'sleep', title: 'Wind down', plannedTime: '22:30', plannedDurationMin: 480 },
@@ -152,7 +154,8 @@ describe.skipIf(!hasDatabase)('plan vs actual', () => {
 
     const after = (await comparison()).json();
     expect(after.items[0].adherence).toBe('not_logged');
-    expect(after.items[0].linkedEventId).toBeNull();
+    // The comparison reports the linked event as `actual`, not as a bare id.
+    expect(after.items[0].actual).toBeNull();
   });
 
   it('re-links when an event moves in time', async () => {
@@ -174,8 +177,9 @@ describe.skipIf(!hasDatabase)('plan vs actual', () => {
 
     const after = (await comparison()).json();
     expect(after.items[0].adherence).toBe('not_logged');
+    expect(after.items[0].actual).toBeNull();
     expect(after.items[1].adherence).toBe('on_time');
-    expect(after.items[1].linkedEventId).toBe(eventId);
+    expect(after.items[1].actual.id).toBe(eventId);
   });
 
   it('reconciles a plan created after the events were logged', async () => {
@@ -228,11 +232,11 @@ describe.skipIf(!hasDatabase)('plan vs actual', () => {
       const event = await logEvent({
         type: 'custom',
         title: 'Late night snack run',
-        occurredAt: '2026-09-06T17:30:00Z',
+        occurredAt: '2026-03-03T17:30:00Z',
       });
 
       expect(event.statusCode).toBe(201);
-      expect(event.json().localDate).toBe('2026-09-07');
+      expect(event.json().localDate).toBe('2026-03-04');
     });
 
     it('files a late-evening local event under the same local day', async () => {
@@ -240,9 +244,9 @@ describe.skipIf(!hasDatabase)('plan vs actual', () => {
       const event = await logEvent({
         type: 'custom',
         title: 'Almost midnight',
-        occurredAt: '2026-09-07T16:59:00Z',
+        occurredAt: '2026-03-04T16:59:00Z',
       });
-      expect(event.json().localDate).toBe('2026-09-07');
+      expect(event.json().localDate).toBe('2026-03-04');
     });
 
     it('matches a 00:30 local event against a 00:30 plan item', async () => {
@@ -250,7 +254,7 @@ describe.skipIf(!hasDatabase)('plan vs actual', () => {
       await logEvent({
         type: 'sleep',
         title: 'Went to bed',
-        occurredAt: '2026-09-06T17:30:00Z',
+        occurredAt: '2026-03-03T17:30:00Z',
         durationMin: 420,
       });
 
@@ -272,9 +276,9 @@ describe.skipIf(!hasDatabase)('plan vs actual', () => {
       const event = await logEvent({
         type: 'custom',
         title: 'Same instant, different day',
-        occurredAt: '2026-09-06T17:30:00Z',
+        occurredAt: '2026-03-03T17:30:00Z',
       });
-      expect(event.json().localDate).toBe('2026-09-06');
+      expect(event.json().localDate).toBe('2026-03-03');
     });
   });
 

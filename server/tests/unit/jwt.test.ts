@@ -4,7 +4,8 @@ import { UnauthenticatedError } from '../../src/lib/errors.js';
 import { createJwtVerifier } from '../../src/modules/auth/jwt.js';
 
 const ISSUER = 'https://project.supabase.co/auth/v1';
-const SECRET = 'a-test-jwt-secret-that-is-long-enough-for-hs256';
+// Not a secret — a fixed test signing key. See tests/helpers/app.ts.
+const SECRET = 'a-test-jwt-secret-that-is-long-enough-for-hs256'; // gitleaks:allow
 const USER_ID = '3f2504e0-4f89-11d3-9a0c-0305e82c3301';
 
 const key = new TextEncoder().encode(SECRET);

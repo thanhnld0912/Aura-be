@@ -60,7 +60,9 @@ export class AuthService {
    */
   private async assertNotClosed(userId: string): Promise<void> {
     const anyRow = await this.users.findAny(userId);
-    if (anyRow) throw new UnauthenticatedError();
+    // Only a *closed* account blocks. An existing, active row is the ordinary case —
+    // `POST /api/auth/session` upserts on every app boot.
+    if (anyRow?.deletedAt) throw new UnauthenticatedError();
   }
 
   /** `POST /api/auth/session` — verifies and provisions, reporting whether it is a first visit. */
