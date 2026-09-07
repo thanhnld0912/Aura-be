@@ -10,7 +10,7 @@ import { z } from 'zod';
  * Variables are required from the phase that actually consumes them, so the server
  * boots without keys it does not yet use. Promotion schedule:
  *
- *   Phase 2  SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_JWT_SECRET
+ *   Phase 2  SUPABASE_URL — done, now required
  *   Phase 3  USDA_API_KEY, OPEN_FOOD_FACTS_USER_AGENT
  *   Phase 4  ANTHROPIC_API_KEY, GEMINI_API_KEY, SUPABASE_STORAGE_BUCKET
  */
@@ -42,9 +42,14 @@ export const envSchema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
 
-  // ── Supabase (Phase 2 / Phase 4) ────────────────────────────────────────
-  SUPABASE_URL: z.string().url().optional(),
+  // ── Supabase ────────────────────────────────────────────────────────────
+  // Required from Phase 2: it is the expected JWT issuer, the JWKS origin, and the
+  // host the logout call goes to. Without it there is no authentication at all.
+  SUPABASE_URL: z.string().url(),
+  // Phase 4 (Storage). Bypasses RLS — server only, never in a client bundle.
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
+  // Projects on legacy HS256 keys set this; projects on asymmetric keys do not, and
+  // are verified against the JWKS published under SUPABASE_URL instead.
   SUPABASE_JWT_SECRET: z.string().min(1).optional(),
   SUPABASE_STORAGE_BUCKET: z.string().min(1).default('meal-photos'),
 
