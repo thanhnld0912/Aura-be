@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import type { Env } from './config/env.js';
 import type { Database } from './database/client.js';
 import { loggerOptions } from './lib/logger.js';
+import type { SupabaseAuthClient } from './modules/auth/supabase-auth-client.js';
 import { registerErrorHandler } from './middleware/error-handler.js';
 import { registerRateLimit } from './middleware/rate-limit.js';
 import { generateRequestId, registerRequestContext } from './middleware/request-context.js';
@@ -14,6 +15,8 @@ export interface BuildAppOptions {
   database: Database;
   /** Tests pass `false` to keep output clean. */
   logger?: boolean;
+  /** Injected by tests so sign-out does not reach Supabase. */
+  supabaseAuth?: SupabaseAuthClient;
 }
 
 /**
@@ -48,7 +51,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await registerSecurity(app, env);
   await registerRateLimit(app, env);
 
-  await app.register(registerRoutes, { prefix: '/api', database });
+  await app.register(registerRoutes, {
+    prefix: '/api',
+    env,
+    database,
+    ...(options.supabaseAuth ? { supabaseAuth: options.supabaseAuth } : {}),
+  });
 
   return app;
 }
