@@ -60,6 +60,26 @@ export interface JwtVerifierConfig {
 
 export type JwtVerifier = (token: string) => Promise<VerifiedToken>;
 
+/**
+ * A short, log-safe description of why a token was refused.
+ *
+ * Built from `jose`'s error codes and our own thrown messages, both of which describe
+ * the *check*, never the token. Nothing derived from the token's bytes may appear
+ * here — this string reaches the log, and an access token in a log is a credential in
+ * a log (SECURITY.md §9).
+ */
+function describeFailure(error: unknown): string {
+  const code = (error as { code?: unknown }).code;
+  if (typeof code === 'string') {
+    const claim = (error as { claim?: unknown }).claim;
+    return typeof claim === 'string' ? `${code} (${claim})` : code;
+  }
+  // Our own guards above: 'missing alg', 'no symmetric key configured',
+  // 'no key set configured', 'unsupported alg X', 'unexpected claims'.
+  const message = (error as { message?: unknown }).message;
+  return typeof message === 'string' && message.length <= 80 ? message : 'token rejected';
+}
+
 export function createJwtVerifier(config: JwtVerifierConfig): JwtVerifier {
   const audience = config.audience ?? SUPABASE_AUDIENCE;
   const secretKey = config.secret ? new TextEncoder().encode(config.secret) : undefined;
@@ -108,9 +128,11 @@ export function createJwtVerifier(config: JwtVerifierConfig): JwtVerifier {
       if (!claims.success) throw new Error('unexpected claims');
 
       return { userId: claims.data.sub, email: claims.data.email ?? null };
-    } catch {
-      // Deliberately uniform: the caller learns only that the token was not accepted.
-      throw new UnauthenticatedError();
+    } catch (error) {
+      // Deliberately uniform to the *caller*: they learn only that the token was not
+      // accepted. The reason goes to the log, where it is the difference between a
+      // five-minute misconfiguration and an afternoon of guessing.
+      throw new UnauthenticatedError(undefined, describeFailure(error));
     }
   };
 }

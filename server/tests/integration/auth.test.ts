@@ -210,6 +210,68 @@ describe.skipIf(!hasDatabase)('authentication', () => {
       expect(second.json().user.isNewUser).toBe(false);
     });
 
+    // These use their own client addresses on purpose. POST /api/auth/session is
+    // limited to 10 requests per 15 minutes per IP (SECURITY.md section 5), and the
+    // limiter is not reset between tests, so a shared address would make the tests
+    // starve each other in whatever order they happen to run.
+
+    /**
+     * The bootstrap must not require the thing it exists to hand out. A client that
+     * has just signed in to Supabase holds no AURA session, so if this endpoint sat
+     * behind the `authenticate` preHandler the flow could never start — the caller
+     * would need a session to get a session.
+     */
+    it('needs no Authorization header, because that is the point of a bootstrap', async () => {
+      const response = await harness.app.inject({
+        method: 'POST',
+        url: '/api/auth/session',
+        remoteAddress: '10.0.0.1',
+        payload: { accessToken: await signTestToken({ sub: userA, email: 'thanh@example.com' }) },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().user.id).toBe(userA);
+    });
+
+    it('trusts the body token, not a header someone also sent', async () => {
+      const response = await harness.app.inject({
+        method: 'POST',
+        url: '/api/auth/session',
+        remoteAddress: '10.0.0.2',
+        headers: bearer('not-a-token-at-all'),
+        payload: { accessToken: await signTestToken({ sub: userA, email: 'thanh@example.com' }) },
+      });
+
+      // The junk header is simply not read here; only the verified body token counts.
+      expect(response.statusCode).toBe(200);
+      expect(response.json().user.id).toBe(userA);
+    });
+
+    it('rejects an expired or malformed body token with the same uniform 401', async () => {
+      const cases = [
+        await signTestToken({ sub: userA, expiresIn: '-1h' }),
+        'sbp_0123456789abcdef0123456789abcdef01234567', // a Personal Access Token
+        'eyJhbGciOiJub25lIn0.eyJzdWIiOiJhIn0.',
+        'not.a.jwt',
+      ];
+
+      for (const accessToken of cases) {
+        const response = await harness.app.inject({
+          method: 'POST',
+          url: '/api/auth/session',
+          remoteAddress: '10.0.0.3',
+          payload: { accessToken },
+        });
+        expect(response.statusCode, accessToken.slice(0, 12)).toBe(401);
+        expect(response.json().error.code).toBe('UNAUTHENTICATED');
+        // No hint about which check failed.
+        expect(response.json().error.message).toBe('Authentication required');
+      }
+
+      const rows = await harness.sql`select count(*)::int as count from users`;
+      expect(rows[0]?.['count']).toBe(0);
+    });
+
     it('refreshes the email when Supabase reports a new one', async () => {
       await harness.app.inject({
         method: 'POST',

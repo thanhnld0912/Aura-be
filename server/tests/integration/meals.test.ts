@@ -457,9 +457,12 @@ describe.skipIf(!hasDatabase)('meals', () => {
       expect(daily.json()).not.toHaveProperty('nutrition');
       expect(weekly.json().totals).not.toHaveProperty('kcal');
 
-      // 390 appears nowhere in any of the three payloads.
+      // 390 appears nowhere in any of the three payloads. Timestamps are stripped
+      // first: an ISO instant carries milliseconds, so roughly one run in a thousand
+      // would produce a createdAt ending in .390Z and fail this for no reason.
       for (const response of [meal, daily, weekly]) {
-        expect(response.body).not.toContain('390');
+        const withoutTimestamps = response.body.replace(/\d{4}-\d{2}-\d{2}T[\d:.]+Z/g, '');
+        expect(withoutTimestamps).not.toContain('390');
       }
 
       // The behavioural figures are still there — the day is not blanked out.

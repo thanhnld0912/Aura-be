@@ -163,6 +163,47 @@ describe('JWT verification — asymmetric keys', () => {
   });
 });
 
+describe('why a token was refused — for the log, never the caller', () => {
+  const reasonFor = async (token: string): Promise<string | undefined> => {
+    try {
+      await verifier(token);
+      throw new Error('expected the token to be rejected');
+    } catch (error) {
+      expect(error).toBeInstanceOf(UnauthenticatedError);
+      return (error as UnauthenticatedError).reason;
+    }
+  };
+
+  it('distinguishes the checks, so an unexplained 401 can be explained', async () => {
+    expect(await reasonFor(await hs256Token({ expiresIn: '-1h' }))).toContain('ERR_JWT_EXPIRED');
+    expect(await reasonFor(await hs256Token({ issuer: 'https://evil.test/auth/v1' }))).toContain(
+      'iss',
+    );
+    expect(await reasonFor(await hs256Token({ audience: 'anon' }))).toContain('aud');
+    expect(await reasonFor('not.a.jwt')).toBeTruthy();
+  });
+
+  it('names the misconfiguration when no key can verify the algorithm', async () => {
+    const jwksOnly = createJwtVerifier({ issuer: ISSUER, jwks: { keys: [] } });
+    await expect(jwksOnly(await hs256Token())).rejects.toMatchObject({
+      reason: 'no symmetric key configured',
+    });
+  });
+
+  /**
+   * The reason reaches the log. A token in a log is a credential in a log
+   * (SECURITY.md §9), so no part of the token may survive into this string.
+   */
+  it('never quotes the token itself', async () => {
+    const token = await hs256Token({ expiresIn: '-1h' });
+    const reason = (await reasonFor(token)) ?? '';
+    expect(reason.length).toBeLessThanOrEqual(80);
+    for (const segment of token.split('.')) {
+      expect(reason).not.toContain(segment);
+    }
+  });
+});
+
 describe('JWT verifier construction', () => {
   it('refuses to build with no key at all, rather than accepting everything', () => {
     expect(() => createJwtVerifier({ issuer: ISSUER })).toThrow(/needs a key/);

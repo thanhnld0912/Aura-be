@@ -48,9 +48,28 @@ export const envSchema = z.object({
   SUPABASE_URL: z.string().url(),
   // Phase 4 (Storage). Bypasses RLS — server only, never in a client bundle.
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
-  // Projects on legacy HS256 keys set this; projects on asymmetric keys do not, and
-  // are verified against the JWKS published under SUPABASE_URL instead.
-  SUPABASE_JWT_SECRET: z.string().min(1).optional(),
+  /**
+   * Projects on legacy HS256 keys set this; projects on asymmetric keys do not, and
+   * are verified against the JWKS published under SUPABASE_URL instead.
+   *
+   * Rejecting a UUID here is not fussiness. Supabase's newer dashboard shows each
+   * signing key by a UUID *key id*, and that id is published to the world at
+   * `/auth/v1/.well-known/jwks.json`. Setting it as the shared secret makes the
+   * verifier accept HS256 tokens signed with a public value — anyone could then forge
+   * a token for any `sub`. The failure is silent, because asymmetric tokens keep
+   * verifying against the JWKS exactly as before. So it fails the boot instead.
+   */
+  SUPABASE_JWT_SECRET: z
+    .string()
+    .min(1)
+    .refine((value) => !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value.trim()), {
+      message:
+        'looks like a JWT signing key ID (a UUID), not a signing secret. That ID is ' +
+        'published in your project JWKS, so using it as a shared secret would let ' +
+        'anyone forge tokens. Use the legacy HS256 secret, or leave this unset and ' +
+        'let SUPABASE_URL supply the JWKS.',
+    })
+    .optional(),
   SUPABASE_STORAGE_BUCKET: z.string().min(1).default('meal-photos'),
 
   // ── AI (Phase 4) — server only, never exposed to a client ───────────────

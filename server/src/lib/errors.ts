@@ -97,8 +97,20 @@ export class UnderageError extends AppError {
 export class UnauthenticatedError extends AppError {
   readonly statusCode = 401;
   readonly code = 'UNAUTHENTICATED' as const;
-  constructor(message = 'Authentication required') {
+  /**
+   * Why the token was refused — for the log only.
+   *
+   * The response stays deliberately uniform (SECURITY.md §2): telling a caller
+   * "expired" rather than "bad signature" hands them an oracle. But the operator
+   * staring at a 401 they cannot explain needs the answer, and the server log is the
+   * one place it can be given safely. Never included in the envelope, and never the
+   * token itself.
+   */
+  readonly reason: string | undefined;
+
+  constructor(message = 'Authentication required', reason?: string) {
     super(message);
+    this.reason = reason;
   }
 }
 

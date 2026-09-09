@@ -117,8 +117,21 @@ export async function registerOpenApi(app: FastifyInstance): Promise<void> {
         title: 'AURA API',
         description:
           'AURA AI Health & Fitness Companion API.\n\n' +
-          'Every endpoint except those tagged otherwise requires a Supabase access token. ' +
-          'Use **Authorize** and paste the token — no `Bearer ` prefix, Swagger adds it.\n\n' +
+          '### Authenticating in this page\n\n' +
+          'Supabase Auth issues the token; this API only verifies it. To get one:\n\n' +
+          '1. Sign in through the AURA frontend, or call Supabase directly:\n' +
+          '   `POST https://<project>.supabase.co/auth/v1/token?grant_type=password`\n' +
+          '   with the header `apikey: <anon key>` and body ' +
+          '`{ "email": "...", "password": "..." }`.\n' +
+          '2. Take `access_token` from the response — a JWT beginning `eyJ`.\n' +
+          '3. Press **Authorize** above and paste it. No `Bearer ` prefix; Swagger adds it.\n' +
+          '4. Optionally call `POST /api/auth/session` with the same token in the body. ' +
+          'That is the bootstrap call: it verifies the token and creates the AURA user row ' +
+          'on first contact. It is the one endpoint that takes the token in the **body** ' +
+          'rather than the header, so it needs no Authorize.\n\n' +
+          'A Supabase **Personal Access Token** (`sbp_...`), the **anon key**, and the ' +
+          '**service role key** are all rejected — none of them is a user JWT, and only ' +
+          'a user JWT carries the `sub` that identifies whose data is being read.\n\n' +
           'Nutrition figures returned by this API are estimates carrying a source and a ' +
           'confidence, and every one of them can be corrected by the user. They are not ' +
           'medical advice.',

@@ -37,6 +37,32 @@ describe('parseEnv', () => {
     }
   });
 
+  /**
+   * A real misconfiguration, and a silent one: Supabase's newer dashboard identifies
+   * each signing key by a UUID, that UUID is published in the project's JWKS, and
+   * pasting it here would make the verifier accept HS256 tokens signed with a public
+   * value. Asymmetric tokens keep working throughout, so nothing looks wrong.
+   */
+  it('refuses a JWT signing key ID in place of the signing secret', () => {
+    // Not a real key id — the shape is the whole point.
+    expect(() =>
+      parseEnv({ ...minimal, SUPABASE_JWT_SECRET: '00000000-0000-4000-8000-000000000000' }), // gitleaks:allow
+    ).toThrow(/SUPABASE_JWT_SECRET/);
+
+    expect(() =>
+      parseEnv({ ...minimal, SUPABASE_JWT_SECRET: '00000000-0000-4000-8000-00000000ABCD' }), // gitleaks:allow
+    ).toThrow(/published in your project JWKS/);
+  });
+
+  it('still accepts a genuine legacy HS256 secret', () => {
+    const env = parseEnv({
+      ...minimal,
+      // 40 alphanumeric characters, the legacy Supabase shape.
+      SUPABASE_JWT_SECRET: 'q7Rk2wZpL9xTn4vB8sMdC1yH6jF3aE0gU5iOtQwX', // gitleaks:allow
+    });
+    expect(env.SUPABASE_JWT_SECRET).toHaveLength(40);
+  });
+
   it('parses CORS_ORIGIN into an allowlist and rejects a non-URL entry', () => {
     expect(parseEnv({ ...minimal, CORS_ORIGIN: 'http://a.test, https://b.test' }).CORS_ORIGIN).toEqual([
       'http://a.test',

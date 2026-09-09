@@ -78,12 +78,18 @@ export function registerErrorHandler(app: FastifyInstance): void {
     const appError = normalise(error);
     const requestId = request.id;
 
+    // Present only on UnauthenticatedError, and only ever in the log — a 401 that
+    // cannot be explained is the hardest failure to debug, and the envelope must
+    // stay uniform (SECURITY.md §2).
+    const reason = (appError as { reason?: unknown }).reason;
+
     const logContext = {
       err: error,
       code: appError.code,
       statusCode: appError.statusCode,
       method: request.method,
       route: request.routeOptions?.url ?? request.url,
+      ...(typeof reason === 'string' ? { reason } : {}),
     };
 
     if (appError.statusCode >= 500) {
