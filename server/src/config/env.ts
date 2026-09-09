@@ -71,6 +71,14 @@ export const envSchema = z.object({
   // Explicit allowlist, never `*` and never reflected from Origin (SECURITY.md §6).
   CORS_ORIGIN: csv,
   RATE_LIMIT_ENABLED: booleanish.default('true'),
+  /**
+   * Serves Swagger UI at /docs and the OpenAPI document at /docs/json.
+   *
+   * On by default so the API is explorable out of the box. Worth turning off in a
+   * public production deployment: the document is a complete map of the surface, which
+   * is convenient for a developer and equally convenient for anyone else.
+   */
+  DOCS_ENABLED: booleanish.default('true'),
   MAX_UPLOAD_BYTES: z.coerce.number().int().min(1).default(8_388_608),
 
   // ── Scheduled jobs (Phase 5) ────────────────────────────────────────────

@@ -152,6 +152,10 @@ npm run db:seed               # loads the Vietnamese food dataset
 npm run dev                   # http://localhost:3001
 ```
 
+Interactive API documentation is served at **http://localhost:3001/docs** (OpenAPI
+document at `/docs/json`). Use **Authorize** to paste a Supabase access token, then
+exercise any endpoint from the browser. Set `DOCS_ENABLED=false` to turn it off.
+
 ```bash
 curl http://localhost:3001/api/health
 # {"status":"ok","version":"1.0.0","uptime":3,"checks":{"database":"ok"}}

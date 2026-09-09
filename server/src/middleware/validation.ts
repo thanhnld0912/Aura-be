@@ -68,6 +68,17 @@ const BODY_METHODS = new Set(['POST', 'PUT', 'PATCH']);
 const EXEMPT_METHODS = new Set(['HEAD', 'OPTIONS']);
 
 /**
+ * Swagger UI serves its own page and static assets from here.
+ *
+ * They are not API endpoints: they accept no user input, return HTML and JavaScript
+ * rather than a domain payload, and are excluded from the OpenAPI document itself. The
+ * guard exists to stop an *API* route shipping without a schema, and this exemption is
+ * deliberately a fixed prefix rather than anything a route can opt into — no handler
+ * under `/api` can reach it.
+ */
+const DOCS_PREFIX = '/docs';
+
+/**
  * Registration-time guard. A route that declares no response schema, or a mutating
  * route that declares no body schema, throws at boot — which is a failed deploy,
  * not an unvalidated endpoint in production.
@@ -81,6 +92,7 @@ export function assertRouteIsValidated(route: RouteOptions): void {
     String(m).toUpperCase(),
   );
   if (methods.every((m) => EXEMPT_METHODS.has(m))) return;
+  if (route.url === DOCS_PREFIX || route.url.startsWith(`${DOCS_PREFIX}/`)) return;
 
   const where = `${methods.join('|')} ${route.url}`;
   const schema = route.schema as

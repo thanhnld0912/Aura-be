@@ -4,6 +4,7 @@ import type { Database } from './database/client.js';
 import { loggerOptions } from './lib/logger.js';
 import type { SupabaseAuthClient } from './modules/auth/supabase-auth-client.js';
 import { registerErrorHandler } from './middleware/error-handler.js';
+import { registerOpenApi } from './middleware/openapi.js';
 import { registerRateLimit } from './middleware/rate-limit.js';
 import { generateRequestId, registerRequestContext } from './middleware/request-context.js';
 import { registerSecurity } from './middleware/security.js';
@@ -50,6 +51,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   await registerSecurity(app, env);
   await registerRateLimit(app, env);
+
+  // Before the routes: @fastify/swagger collects operations through an `onRoute` hook,
+  // so anything registered earlier than this is invisible to the document.
+  if (env.DOCS_ENABLED) await registerOpenApi(app);
 
   await app.register(registerRoutes, {
     prefix: '/api',
