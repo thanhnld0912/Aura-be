@@ -97,3 +97,43 @@ export const localeEnum = pgEnum('locale', ['vi', 'en']);
 export const unitSystemEnum = pgEnum('unit_system', ['metric', 'imperial']);
 export const nutritionDisplayEnum = pgEnum('nutrition_display', ['focus', 'detail', 'hidden']);
 export const goalFocusEnum = pgEnum('goal_focus', ['consistency', 'variety', 'movement']);
+
+/**
+ * AI bookkeeping (DATABASE_DESIGN.md §3.8).
+ *
+ * Real enums, like every other categorical field here. The Phase 0 ERD sketches these
+ * three as `text` with a comment; §3.9 of the same document states the rule the rest of
+ * this file follows, and a `purpose` of `'mealparse'` should fail on write rather than
+ * quietly split a cost report in two.
+ *
+ * `model` is deliberately **not** an enum — model ids change often enough that pinning
+ * them in the type system would mean a migration every time one is swapped, and an
+ * unknown model id is not an integrity problem.
+ */
+export const aiPurposeEnum = pgEnum('ai_purpose', [
+  'meal_parse',
+  'meal_vision',
+  'daily',
+  'weekly',
+  'pattern',
+  'chat',
+  'plan',
+]);
+
+export const aiProviderEnum = pgEnum('ai_provider', ['anthropic', 'google']);
+
+/**
+ * How a single provider attempt ended.
+ *
+ * `blocked` exists from the start even though nothing produces it yet: the safety layer
+ * lands in a later task, and adding an enum value later costs a migration while adding
+ * it now costs a line. Nothing reads it until then.
+ */
+export const aiStatusEnum = pgEnum('ai_status', [
+  'ok',
+  'schema_error',
+  'provider_error',
+  'timeout',
+  'refused',
+  'blocked',
+]);

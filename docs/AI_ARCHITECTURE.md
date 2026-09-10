@@ -131,6 +131,13 @@ Notes on this shape, each of which is a real constraint of the current API:
 - **Assistant prefill is not available** on this model (400). Output shape is controlled by
   the schema, never by prefilling `{`.
 
+**This snippet is the *reasoning* path only.** `thinking` and `output_config.effort` are
+Opus-family parameters: `claude-haiku-4-5`, which handles `meals/parse`, rejects `effort`
+and has no adaptive thinking — it takes `budget_tokens` if thinking is wanted at all, and
+for a narrow extraction task it is not. The extraction call is therefore the same shape
+minus `thinking`, `effort` and `fallbacks`: a model, a cached system prompt, a user
+message, and `output_config.format`. Copying the block above into the extractor is a 400.
+
 ### Schemas as the single source of truth
 
 ```ts

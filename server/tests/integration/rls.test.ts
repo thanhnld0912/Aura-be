@@ -61,6 +61,14 @@ describe.skipIf(!hasDatabase)('row level security', () => {
         },
       });
     }
+
+    // `ai_runs` has no endpoint — the service writes it through the owning connection,
+    // so that is how it is seeded here.
+    for (const userId of [userA, userB]) {
+      await harness.sql`
+        insert into ai_runs (user_id, purpose, provider, model, status, latency_ms, attempt)
+        values (${userId}, 'meal_parse', 'anthropic', 'test-model', 'ok', 12, 1)`;
+    }
   });
 
   it('the shim resolves auth.uid() from the connection claims', async () => {
@@ -142,6 +150,34 @@ describe.skipIf(!hasDatabase)('row level security', () => {
         (tx) => tx`select user_id from daily_summaries`,
       );
       expect(rows.map((r) => r['user_id'])).toEqual([userA]);
+    });
+
+    it('sees only their own ai_runs', async () => {
+      const rows = await asRlsUser(harness.sql, userA, (tx) => tx`select user_id from ai_runs`);
+      expect(rows.map((r) => r['user_id'])).toEqual([userA]);
+    });
+
+    it('cannot read user B ai_runs even by naming the id', async () => {
+      const rows = await asRlsUser(
+        harness.sql,
+        userA,
+        (tx) => tx`select * from ai_runs where user_id = ${userB}`,
+      );
+      expect(rows).toHaveLength(0);
+    });
+
+    it('cannot attribute an ai_run to user B', async () => {
+      // The cost ledger is keyed by user; a write policy that only checked USING would
+      // let one account bill another.
+      await expect(
+        asRlsUser(
+          harness.sql,
+          userA,
+          (tx) => tx`
+            insert into ai_runs (user_id, purpose, provider, model, status, latency_ms, attempt)
+            values (${userB}, 'chat', 'anthropic', 'test-model', 'ok', 5, 1)`,
+        ),
+      ).rejects.toThrow(/row-level security/i);
     });
 
     it('cannot read user B rows even by naming the id', async () => {
@@ -272,8 +308,8 @@ describe.skipIf(!hasDatabase)('row level security', () => {
 
       const withoutRls = rows.filter((row) => row['enabled'] !== true).map((r) => r['table_name']);
       expect(withoutRls).toEqual([]);
-      // 15 from Phase 2 plus user_food_aliases from Phase 3.
-      expect(rows.length).toBe(16);
+      // 15 from Phase 2, user_food_aliases from Phase 3, ai_runs from Phase 4.
+      expect(rows.length).toBe(17);
     });
 
     it('has a policy on every table that has RLS enabled', async () => {

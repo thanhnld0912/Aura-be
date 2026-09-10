@@ -12,6 +12,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { aiRuns } from './ai.js';
 import { moodEnum } from './enums.js';
 import { users } from './users.js';
 
@@ -55,7 +56,8 @@ export const dailySummaries = pgTable(
     metrics: jsonb('metrics').$type<Record<string, number | string | null>>(),
     /** Filled by Claude in Phase 5. A summary is valid and useful without prose. */
     narrative: text('narrative'),
-    aiRunId: uuid('ai_run_id'),
+    /** `set null` — see the note on `daily_plans.generated_by_ai_run`. */
+    aiRunId: uuid('ai_run_id').references(() => aiRuns.id, { onDelete: 'set null' }),
     computedAt: timestamp('computed_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

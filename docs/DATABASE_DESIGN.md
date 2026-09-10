@@ -343,14 +343,14 @@ erDiagram
     ai_runs {
         uuid id PK
         uuid user_id FK
-        text purpose "meal_parse|meal_vision|daily|weekly|pattern|chat|plan"
-        text provider "anthropic|google"
+        enum purpose "ai_purpose: meal_parse|meal_vision|daily|weekly|pattern|chat|plan"
+        enum provider "ai_provider: anthropic|google"
         text model
         int  input_tokens
         int  output_tokens
         numeric cost_usd
         int  latency_ms
-        text status "ok|schema_error|provider_error|timeout|refused"
+        enum status "ai_status: ok|schema_error|provider_error|timeout|refused|blocked"
         text error "nullable"
         jsonb request_meta "no PII, no raw prompt"
         timestamptz created_at
@@ -499,7 +499,22 @@ Every provider call writes a row: tokens, cost, latency, and whether the respons
 This makes §26 measurable rather than aspirational, and makes `status='schema_error'` rate the
 primary health metric for prompt changes.
 
-`request_meta` deliberately excludes raw prompts and any PII.
+`request_meta` deliberately excludes raw prompts and any PII. As built it carries
+`promptVersion`, `inputChars`, `itemCount`, `imageBytes`, `imageMime` and
+`schemaErrorPaths` — sizes, shapes and Zod paths, nothing with content in it.
+
+**One row per provider attempt, not per request.** A call that fails its schema and
+succeeds on the retry writes two rows and keeps both; `schema_error` rate is the metric
+this table exists to produce, and it cannot be read from a ledger that discards the
+attempts that failed.
+
+`purpose`, `provider` and `status` are **real PostgreSQL enums** (`ai_purpose`,
+`ai_provider`, `ai_status`), following §3.9 rather than the `text` the ERD above
+originally sketched. `model` stays `text`: model ids change often, and an unrecognised
+one is not an integrity problem. `status` includes `blocked` from the start for the
+safety layer, which lands later — an unused enum value costs a line now and a migration
+later. Cost and token columns are nullable because a timeout reports no usage at all,
+and a null there is the honest answer where a zero would understate a real bill.
 
 ### 3.9 Phase 2 implementation notes
 

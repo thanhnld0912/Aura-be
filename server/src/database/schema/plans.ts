@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { aiRuns } from './ai.js';
 import { adherenceEnum, eventTypeEnum, planSourceEnum, planStatusEnum } from './enums.js';
 import { dailyEvents } from './events.js';
 import { users } from './users.js';
@@ -27,10 +28,16 @@ export const dailyPlans = pgTable(
     source: planSourceEnum('source').notNull().default('user'),
     status: planStatusEnum('status').notNull().default('active'),
     /**
-     * The FK to `ai_runs` lands in Phase 4 with that table; the column exists now so
-     * an AI-generated plan needs no schema change later, only a constraint.
+     * Phase 4 landed `ai_runs`, so the constraint this column was waiting for exists
+     * now — one constraint, no data migration, exactly as DATABASE_DESIGN.md §3.9 said.
+     *
+     * `set null` rather than `cascade`: pruning the operational ledger must never take
+     * a user's plan with it. Losing the provenance of a plan is a gap; losing the plan
+     * is data loss.
      */
-    generatedByAiRun: uuid('generated_by_ai_run'),
+    generatedByAiRun: uuid('generated_by_ai_run').references(() => aiRuns.id, {
+      onDelete: 'set null',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
