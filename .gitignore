@@ -18,3 +18,8 @@ coverage/
 # misc
 *.tsbuildinfo
 .turbo/
+
+# The emitted OpenAPI document. Generated on demand by `npm run openapi:emit` and
+# compared against AURA-FE's vendored copy — the contract has one committed home and
+# it is AURA-FE/openapi.json, not a second one here.
+server/openapi.generated.json

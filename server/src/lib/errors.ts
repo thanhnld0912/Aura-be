@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 /**
  * The error model (API_DESIGN.md §1). Every failure the API emits is one of these
  * codes, in one envelope:
@@ -42,6 +44,63 @@ export interface ErrorEnvelope {
     requestId: string;
   };
 }
+
+/**
+ * The envelope, as a schema, so OpenAPI can describe it.
+ *
+ * Documentation only: nothing validates or serialises a response through this. The
+ * error handler still builds the envelope with `toEnvelope()` and Fastify still sends
+ * it unchanged — this exists because `middleware/openapi.ts` needs a Zod object to
+ * convert, and the alternative was hand-writing the shape a second time in the
+ * documentation layer, which is the drift this whole contract exercise is removing.
+ *
+ * `details` is `.optional()` rather than nullable because that is what the runtime
+ * does: `toEnvelope` spreads the key in only when there is something to report, so a
+ * 500 carries three keys and a 400 carries four.
+ */
+export const errorEnvelopeSchema = z.object({
+  error: z.object({
+    code: z.enum(ERROR_CODES),
+    message: z.string(),
+    details: z
+      .array(z.object({ path: z.string(), issue: z.string() }))
+      .optional(),
+    requestId: z.string(),
+  }),
+});
+
+/**
+ * Fails to compile if the schema and the interface ever disagree.
+ *
+ * Checked as two separate properties rather than as mutual assignability, because
+ * `exactOptionalPropertyTypes` makes those differ for a reason that has nothing to do
+ * with the wire: the interface says `details?: ErrorDetail[]` (absent, or an array),
+ * while Zod infers `details?: ErrorDetail[] | undefined` (also explicitly undefined).
+ * The runtime never sends the third case — `toEnvelope` spreads the key in or leaves
+ * it out — so the interface is the accurate one and the difference is noise.
+ *
+ * What is worth asserting survives that:
+ *
+ *   1. the schema describes everything the runtime can emit, so documentation is
+ *      never narrower than the response;
+ *   2. neither side carries a field the other does not.
+ *
+ * Type-level only — erased entirely at runtime.
+ */
+type SchemaCoversRuntime = ErrorEnvelope extends z.infer<typeof errorEnvelopeSchema>
+  ? true
+  : never;
+
+type RuntimeKeys = keyof ErrorEnvelope['error'];
+type SchemaKeys = keyof z.infer<typeof errorEnvelopeSchema>['error'];
+type SameKeys = [RuntimeKeys] extends [SchemaKeys]
+  ? [SchemaKeys] extends [RuntimeKeys]
+    ? true
+    : never
+  : never;
+
+const _errorEnvelopeSchemaIsAccurate: [SchemaCoversRuntime, SameKeys] = [true, true];
+void _errorEnvelopeSchemaIsAccurate;
 
 export abstract class AppError extends Error {
   abstract readonly statusCode: number;

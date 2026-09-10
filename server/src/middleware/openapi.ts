@@ -3,6 +3,7 @@ import swaggerUi from '@fastify/swagger-ui';
 import type { FastifyInstance } from 'fastify';
 import { z, type ZodTypeAny } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
+import { errorEnvelopeSchema } from '../lib/errors.js';
 import { API_VERSION } from '../lib/version.js';
 
 /**
@@ -43,6 +44,68 @@ const UNAUTHENTICATED_ROUTES = new Set([
   'GET /api/nutrition/search',
   'POST /api/auth/session',
 ]);
+
+/**
+ * The operations that cannot answer 401, because no part of their path touches a
+ * token.
+ *
+ * Deliberately not `UNAUTHENTICATED_ROUTES`: those two sets look alike and mean
+ * different things. `POST /api/auth/session` needs no *header* — it carries the
+ * Supabase token in its body — but verifying that token is the entire point of the
+ * endpoint, so a bad one is a 401. Reusing the security list here would have
+ * documented that away.
+ */
+const NO_AUTH_FAILURE_ROUTES = new Set(['GET /api/health', 'GET /api/nutrition/search']);
+
+/** The component every error response points at. Registered under `components`. */
+const ERROR_ENVELOPE_REF = '#/components/schemas/ErrorEnvelope';
+
+/**
+ * What each documented failure means. The wording is the contract's, not new
+ * behaviour: every one of these is a status the API already returns.
+ */
+const ERROR_DESCRIPTIONS: Record<number, string> = {
+  400: 'Validation failed. `details` names the offending fields.',
+  401: 'Missing, expired or invalid token.',
+  404: 'Absent, or owned by another user — the two are deliberately indistinguishable.',
+  429: 'Rate limit exceeded. Carries a `Retry-After` header.',
+  500: 'Unexpected failure. The cause is logged; quote `requestId` to find it.',
+};
+
+/**
+ * The failures an operation can actually produce, derived from the route rather than
+ * attached uniformly.
+ *
+ *   400  it validates something — a body, a query string or a path parameter
+ *   401  anything that verifies a token, which is everything but the two above
+ *   404  it takes an id, and the services behind those throw `NotFoundError`
+ *   429  always: the rate limiter is registered globally
+ *   500  always: an unhandled throw becomes `InternalError`
+ *
+ * Not derived here, and so not documented: 403, 409, 413, 415, 422, 502 and 503.
+ * Those depend on what a handler does rather than on the shape of its route, and
+ * guessing would put responses in the document that the endpoint never sends. See
+ * the report.
+ */
+function errorResponsesFor(
+  operation: string,
+  url: string,
+  validatesInput: boolean,
+): Record<string, unknown> {
+  const codes = new Set<number>([429, 500]);
+  if (validatesInput) codes.add(400);
+  if (!NO_AUTH_FAILURE_ROUTES.has(operation)) codes.add(401);
+  if (url.includes(':id') || url.includes('{id}')) codes.add(404);
+
+  const responses: Record<string, unknown> = {};
+  for (const code of [...codes].sort((a, b) => a - b)) {
+    responses[String(code)] = {
+      description: ERROR_DESCRIPTIONS[code],
+      content: { 'application/json': { schema: { $ref: ERROR_ENVELOPE_REF } } },
+    };
+  }
+  return responses;
+}
 
 /** Groups the operations in the UI. Order here is the order shown. */
 const TAGS = [
@@ -140,6 +203,13 @@ export async function registerOpenApi(app: FastifyInstance): Promise<void> {
       servers: [{ url: '/', description: 'This server' }],
       tags: TAGS,
       components: {
+        // The one named schema in the document. Everything else is inlined by
+        // `$refStrategy: 'none'`; the envelope is the exception because it appears on
+        // roughly a hundred responses, and inlining it there would quadruple the
+        // document to say the same thing over and over.
+        schemas: {
+          ErrorEnvelope: toJsonSchema(errorEnvelopeSchema),
+        },
         securitySchemes: {
           bearerAuth: {
             type: 'http',
@@ -193,6 +263,20 @@ export async function registerOpenApi(app: FastifyInstance): Promise<void> {
 
       const method = Array.isArray(route.method) ? route.method[0] : route.method;
       const operation = `${String(method).toUpperCase()} ${documentedUrl}`;
+
+      // Merged in after the declared responses, and never over one: a route that
+      // documents its own status keeps it. `/api/health` declares 503, which is how
+      // it reports a database it cannot reach.
+      const declared = (converted['response'] ?? {}) as Record<string, unknown>;
+      const validatesInput =
+        converted['body'] !== undefined ||
+        converted['querystring'] !== undefined ||
+        converted['params'] !== undefined;
+
+      converted['response'] = {
+        ...errorResponsesFor(operation, documentedUrl, validatesInput),
+        ...declared,
+      };
 
       return {
         schema: {

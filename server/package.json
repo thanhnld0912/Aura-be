@@ -18,7 +18,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/database/migrate.ts",
     "db:seed": "tsx src/database/seed.ts",
-    "db:migrate:dist": "node dist/database/migrate.js"
+    "db:migrate:dist": "node dist/database/migrate.js",
+    "openapi:emit": "tsx scripts/emit-openapi.ts",
+    "check:contract": "npm run openapi:emit && node scripts/check-contract-drift.mjs"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",

@@ -87,6 +87,49 @@ jobs:
       - name: Build
         run: npm run build
 
+  # The half of the contract loop neither repository can check alone. AURA-FE's
+  # `check:api` proves its generated types match its vendored openapi.json; only a job
+  # that can see both trees can prove that snapshot still matches this backend.
+  #
+  # Needs no Postgres service, no secrets and no network: the document comes from
+  # building the app in memory, and building it touches neither.
+  contract:
+    name: contract — OpenAPI matches the AURA-FE snapshot
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out AURA-FE for its vendored contract
+        uses: actions/checkout@v4
+        with:
+          repository: thanhnld0912/Aura-fe
+          path: aura-fe
+          # Only required while Aura-fe is private; a public repository needs none,
+          # and the fallback keeps this job working either way.
+          token: ${{ secrets.AURA_FE_TOKEN || github.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Lockfile integrity
+        run: npm run check:lockfile
+        working-directory: server
+
+      - run: npm ci
+        working-directory: server
+
+      # Emits the document and byte-compares it. Never writes to the snapshot: a
+      # refresh is a change the frontend commits, not something CI does behind anyone.
+      - name: Contract drift
+        run: npm run check:contract
+        working-directory: server
+        env:
+          AURA_FE_OPENAPI: ${{ github.workspace }}/aura-fe/openapi.json
+
   security:
     name: security — audit · secret scan
     runs-on: ubuntu-latest

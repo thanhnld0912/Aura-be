@@ -17,7 +17,10 @@ describe('OpenAPI documentation', () => {
     openapi: string;
     info: { title: string; version: string; description: string };
     paths: Record<string, Record<string, Record<string, unknown>>>;
-    components: { securitySchemes: Record<string, unknown> };
+    components: {
+      securitySchemes: Record<string, unknown>;
+      schemas: Record<string, unknown>;
+    };
     security: unknown;
     tags: Array<{ name: string }>;
   };
@@ -196,7 +199,10 @@ describe('OpenAPI documentation', () => {
       const responses = (
         document.paths['/api/health']?.['get'] as { responses: Record<string, unknown> }
       ).responses;
-      expect(Object.keys(responses).sort()).toEqual(['200', '503']);
+      // 503 is the route's own declaration and must survive the common error
+      // responses being merged in; 429 and 500 are the two every operation can give.
+      // No 401 and no 400: the health check reads no token and takes no input.
+      expect(Object.keys(responses).sort()).toEqual(['200', '429', '500', '503']);
     });
 
     it('describes a 204 as no content rather than a null type OpenAPI 3.0 rejects', () => {
@@ -204,6 +210,121 @@ describe('OpenAPI documentation', () => {
         document.paths['/api/events/{id}']?.['delete'] as { responses: Record<string, unknown> }
       ).responses;
       expect(JSON.stringify(responses)).not.toContain('"type":"null"');
+    });
+  });
+
+  describe('the error envelope', () => {
+    /** Every operation and the status codes it documents, as one flat list. */
+    const operations = (): Array<{ name: string; url: string; codes: string[] }> => {
+      const rows: Array<{ name: string; url: string; codes: string[] }> = [];
+      for (const [url, item] of Object.entries(document.paths)) {
+        for (const [method, operation] of Object.entries(item as Record<string, unknown>)) {
+          const responses = (operation as { responses?: Record<string, unknown> }).responses ?? {};
+          rows.push({
+            name: `${method.toUpperCase()} ${url}`,
+            url,
+            codes: Object.keys(responses),
+          });
+        }
+      }
+      return rows;
+    };
+
+    it('registers the envelope as the one named component', () => {
+      const schemas = document.components.schemas;
+      expect(Object.keys(schemas)).toEqual(['ErrorEnvelope']);
+    });
+
+    it('describes the envelope the error handler actually sends', () => {
+      const envelope = (
+        document.components.schemas['ErrorEnvelope'] as {
+          properties: { error: { properties: Record<string, unknown>; required: string[] } };
+        }
+      ).properties.error;
+
+      expect(Object.keys(envelope.properties).sort()).toEqual([
+        'code',
+        'details',
+        'message',
+        'requestId',
+      ]);
+      // `details` is absent on a 500 rather than null, so it must not be required.
+      expect(envelope.required.sort()).toEqual(['code', 'message', 'requestId']);
+      expect((envelope.properties['code'] as { enum: string[] }).enum).toContain('VALIDATION_ERROR');
+      expect((envelope.properties['code'] as { enum: string[] }).enum).toContain('RATE_LIMITED');
+    });
+
+    /** The five the middleware attaches. `/api/health` declares its own 503. */
+    const COMMON = ['400', '401', '404', '429', '500'];
+
+    it('gives every common error response the shared component rather than a copy', () => {
+      for (const { name, codes } of operations()) {
+        for (const code of codes.filter((c) => COMMON.includes(c))) {
+          const response = (
+            (document.paths as Record<string, Record<string, { responses: Record<string, unknown> }>>)[
+              name.split(' ')[1] as string
+            ]?.[name.split(' ')[0]?.toLowerCase() as string] as {
+              responses: Record<string, unknown>;
+            }
+          ).responses[code] as { content?: Record<string, { schema?: { $ref?: string } }> };
+
+          expect(response.content?.['application/json']?.schema?.$ref).toBe(
+            '#/components/schemas/ErrorEnvelope',
+          );
+        }
+      }
+    });
+
+    it('leaves a route-declared error response alone', () => {
+      // The health check's 503 carries the same body as its 200 — a dependency
+      // report — not the error envelope. Merging the common responses must not
+      // overwrite a status the route documents itself.
+      const responses = (
+        document.paths['/api/health']?.['get'] as { responses: Record<string, unknown> }
+      ).responses;
+      const unavailable = responses['503'] as {
+        content?: Record<string, { schema?: { $ref?: string } }>;
+      };
+      expect(unavailable.content?.['application/json']?.schema?.$ref).toBeUndefined();
+    });
+
+    it('documents 429 and 500 everywhere, because the limiter and the handler are global', () => {
+      const missing = operations().filter(
+        (op) => !op.codes.includes('429') || !op.codes.includes('500'),
+      );
+      expect(missing.map((op) => op.name)).toEqual([]);
+    });
+
+    it('documents 401 on everything that reads a token, and nowhere else', () => {
+      const without = operations()
+        .filter((op) => !op.codes.includes('401'))
+        .map((op) => op.name)
+        .sort();
+      // `POST /api/auth/session` takes no bearer header but verifies a token in its
+      // body, so it stays on the list of operations that can answer 401.
+      expect(without).toEqual(['GET /api/health', 'GET /api/nutrition/search']);
+    });
+
+    it('documents 400 only where something is validated', () => {
+      for (const { name, codes } of operations()) {
+        const [method, url] = name.split(' ') as [string, string];
+        const operation = (
+          document.paths as Record<string, Record<string, Record<string, unknown>>>
+        )[url]?.[method.toLowerCase()] as Record<string, unknown>;
+        const validates =
+          operation['requestBody'] !== undefined ||
+          (operation['parameters'] as unknown[] | undefined)?.length !== undefined;
+
+        expect(codes.includes('400')).toBe(Boolean(validates));
+      }
+    });
+
+    it('documents 404 only where an id can miss', () => {
+      const withNotFound = operations()
+        .filter((op) => op.codes.includes('404'))
+        .map((op) => op.url);
+      expect(withNotFound.every((url) => url.includes('{id}'))).toBe(true);
+      expect(withNotFound.length).toBeGreaterThan(0);
     });
   });
 
