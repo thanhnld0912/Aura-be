@@ -23,6 +23,7 @@
     "check:contract": "npm run openapi:emit && node scripts/check-contract-drift.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.124.0",
     "@fastify/cors": "^11.3.0",
     "@fastify/helmet": "^13.1.1",
     "@fastify/rate-limit": "^11.2.0",

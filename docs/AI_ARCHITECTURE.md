@@ -74,6 +74,58 @@ server/src/agent/                   # AURA's reasoning — uses ai/, knows the d
 The split exists so that swapping Claude for another model touches `ai/`, while changing what
 AURA *reasons about* touches `agent/`. `agent/` is where the product lives; `ai/` is plumbing.
 
+### As built (Phase 4, Tasks 2–3)
+
+The layout above is the destination. What exists today is smaller, and the names differ:
+
+```
+server/src/ai/
+├── providers/
+│   ├── ai-provider.ts              # one interface: AiProvider
+│   ├── fake-provider.ts            # scripted outcomes; the suite needs no API key
+│   └── claude-provider.ts          # @anthropic-ai/sdk — the ONLY file importing it
+├── ai-runs.repository.ts           # append-only ledger writer
+├── pricing.ts                      # model → published price; unknown model → null
+├── types.ts                        # AiRequest / AiCompletion / AiProviderFailure
+└── ai.service.ts                   # call + validate + retry + meter + record
+```
+
+`server/src/agent/` is still empty, and there is no `provider-registry.ts`: `AiService` holds a
+name-keyed map of providers, which is all a two-vendor system needs.
+
+The interface is one method, `complete()`, rather than the separate `ReasoningProvider` and
+`VisionProvider` sketched above — reasoning and vision differ in the *request*, not in the
+transport, so one adapter per vendor carries both.
+
+### Who owns what
+
+| | `AiService` | `ClaudeProvider` |
+|---|---|---|
+| Zod validation | ✅ caller-supplied schema | ❌ never — it could "repair" output |
+| Retry policy | ✅ max 2 provider calls | ❌ SDK built with `maxRetries: 0` |
+| Timeout | ✅ owns the `AbortController` | passes the signal to the SDK |
+| `ai_runs` | ✅ one row per attempt | ❌ never writes |
+| Cost | ✅ via injected `estimateCost` | ❌ no pricing inside the adapter |
+| Prompt text | caller's, passed through | ❌ builds nothing |
+| Anthropic types | ❌ never sees one | ✅ confined to this file |
+
+The provider does exactly one thing: `AiRequest` → `AiCompletion`, or throw
+`AiProviderFailure`. It reports *what happened* (kind, HTTP status, `Retry-After`); it does not
+decide what that means. `AiProviderFailure` carries no `retryable` flag for that reason — the
+policy lives in `AiService.isRetryable`, in one place.
+
+**Model choice is the caller's.** `AiRequest.model` is forwarded verbatim, so the extraction
+path (Haiku) and the reasoning path (Opus) are the same code with different arguments. Nothing
+in the provider special-cases a model, and nothing adds `thinking` or `output_config.effort` —
+see the warning in §1, and note that Haiku 4.5 would reject both with a 400.
+
+**Structured output.** When a caller supplies `AiRequest.jsonSchema`, it is sent as
+`output_config: { format: { type: 'json_schema', schema } }`. Callers build that JSON Schema
+from their Zod schema with `zod-to-json-schema`, which the project already depends on. The
+SDK's `zodOutputFormat()` helper is **not** usable here: it imports from `zod/v4`, and AURA is
+on Zod 3. Structured output constrains the shape; it does not replace validation, and the
+response is still `safeParse`d by `AiService`.
+
 ---
 
 ## 3. Every model call is validated (Rule 10)
@@ -249,6 +301,17 @@ something upstream is changing bytes.
 Prompts are **versioned files**, and `ai_runs.request_meta` records the prompt version. When
 insight quality changes, you can tell whether a prompt edit caused it.
 
+> **Not yet enabled.** Nothing in the codebase sets `cache_control` today, so
+> `cache_read_input_tokens` is absent on every call and `ai_runs.cache_read_input_tokens` is
+> null throughout. `ClaudeProvider` passes the field through when the API reports it, and
+> deliberately leaves it *absent* rather than writing 0 — absent means "we do not know",
+> whereas 0 would assert that caching ran and missed.
+>
+> One gap to close when caching is switched on: cache **writes** bill at 1.25x input, and
+> neither `AiUsage` nor `ai_runs` carries `cache_creation_input_tokens`, so `pricing.ts` cannot
+> include that term. Until then the estimate is exact (the term is always zero); afterwards it
+> runs low until a column and a field are added.
+
 ---
 
 ## 6. Health safety (§31) — enforced in three places
@@ -308,7 +371,8 @@ that it sometimes responds confidently instead.
 
 ## 7. Cost analysis (§26)
 
-Pricing per million tokens (Anthropic first-party, cached 2026-06-24):
+Pricing per million tokens (Anthropic first-party, re-verified 2026-09-10 against
+[platform.claude.com/docs/en/about-claude/pricing](https://platform.claude.com/docs/en/about-claude/pricing)):
 
 | Model | Input | Output |
 |---|---|---|
@@ -316,6 +380,12 @@ Pricing per million tokens (Anthropic first-party, cached 2026-06-24):
 | `claude-sonnet-5` | $2.00 | $10.00 |
 | `claude-haiku-4-5` | $1.00 | $5.00 |
 | `gemini-2.5-flash` | ~$0.30 | ~$2.50 |
+
+The executable copy of this table is `src/ai/pricing.ts`, and it is deliberately shorter: only
+`claude-haiku-4-5` and `claude-opus-5`, the two models `env.ts` is configured to call. A model
+that is not in it prices as `null`, never as an approximation — including the Gemini row above,
+whose `~` figures are planning estimates and not something to bill against. Rows get added when
+a model is actually wired up.
 
 ### Per-call estimates
 
