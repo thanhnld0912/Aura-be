@@ -339,3 +339,91 @@ describe('AiService — what never reaches the ledger', () => {
     expect(runs.rows[0]?.error).not.toContain('"');
   });
 });
+
+/**
+ * `recordBlocked` — the pre-provider ledger entry (Task 5).
+ *
+ * A separate entry point from `run()`, so these tests are also the statement that the
+ * retry loop was not touched: nothing below reaches it.
+ */
+describe('a request the safety layer stopped', () => {
+  it('never calls the provider', async () => {
+    const { service, provider } = build([fakeOutcomes.ok(VALID)]);
+
+    await service.recordBlocked(request);
+
+    expect(provider.calls).toHaveLength(0);
+  });
+
+  it('writes exactly one row, as attempt 1 with a blocked status', async () => {
+    const { service, runs } = build([]);
+
+    const row = await service.recordBlocked(request);
+
+    expect(row.id).toBe('run-1');
+    expect(runs.rows).toHaveLength(1);
+    expect(runs.rows[0]).toMatchObject({
+      userId: USER_ID,
+      purpose: 'meal_parse',
+      provider: 'anthropic',
+      model: 'test-model-1',
+      status: 'blocked',
+      attempt: 1,
+    });
+  });
+
+  it('costs nothing and reports no usage', async () => {
+    const { service, runs } = build([]);
+    await service.recordBlocked(request);
+
+    const row = runs.rows[0];
+    expect(row?.costUsd).toBeNull();
+    expect(row?.inputTokens).toBeUndefined();
+    expect(row?.outputTokens).toBeUndefined();
+    expect(row?.cacheReadInputTokens).toBeUndefined();
+  });
+
+  it('measures real latency rather than reporting zero', async () => {
+    const { service, runs } = build([]);
+    await service.recordBlocked(request);
+
+    // The injected clock advances 5ms per reading.
+    expect(runs.rows[0]?.latencyMs).toBe(5);
+  });
+
+  it('records a flag, not a reason, and never the input', async () => {
+    const { service, runs } = build([]);
+    await service.recordBlocked(request);
+
+    const row = runs.rows[0];
+    expect(row?.requestMeta).toMatchObject({ safety: 'blocked' });
+    // Nothing failed, so there is no error to sanitise — and the category that matched
+    // is a claim about a person, which this table does not keep.
+    expect(row?.error).toBeNull();
+    expect(JSON.stringify(row)).not.toContain(request.user);
+  });
+
+  it('names the intended vendor even when no provider is configured', async () => {
+    // A blocked run is comparable with the ones that went through, which means it has
+    // to say where it was headed.
+    const runs = recorder();
+    const service = new AiService({ providers: [], runs });
+
+    await service.recordBlocked(request);
+
+    expect(runs.rows[0]?.provider).toBe('anthropic');
+    expect(runs.rows[0]?.status).toBe('blocked');
+  });
+
+  it('leaves the normal path completely unchanged', async () => {
+    // The same service instance still runs, retries and meters exactly as before.
+    const { service, provider, runs } = build([fakeOutcomes.rateLimited(0), fakeOutcomes.ok(VALID)]);
+
+    const result = await service.run(request);
+
+    expect(result.value).toEqual(VALID);
+    expect(result.attempts).toBe(2);
+    expect(provider.calls).toHaveLength(2);
+    expect(runs.rows.map((row) => row.status)).toEqual(['provider_error', 'ok']);
+  });
+});

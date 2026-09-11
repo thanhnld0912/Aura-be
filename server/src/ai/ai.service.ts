@@ -84,7 +84,10 @@ const DEFAULT_BACKOFF_MS = 1_000;
 
 /** One attempt's verdict, in the ledger's own vocabulary. */
 interface Attempt {
-  status: Extract<AiStatus, 'ok' | 'schema_error' | 'provider_error' | 'timeout' | 'refused'>;
+  status: Extract<
+    AiStatus,
+    'ok' | 'schema_error' | 'provider_error' | 'timeout' | 'refused' | 'blocked'
+  >;
   completion?: AiCompletion | undefined;
   failure?: AiProviderFailure | undefined;
   schemaIssuePaths?: string[] | undefined;
@@ -99,6 +102,9 @@ interface Attempt {
  */
 function isRetryable(attempt: Attempt): boolean {
   if (attempt.status === 'ok') return false;
+  // A safety block is a decision about the request, not a failure of the call. Repeating
+  // it would produce the same decision and a second ledger row saying so.
+  if (attempt.status === 'blocked') return false;
   if (attempt.status === 'schema_error') return true;
   if (attempt.status === 'timeout') return true;
   if (attempt.status === 'refused') return false;
@@ -119,6 +125,10 @@ function isRetryable(attempt: Attempt): boolean {
  */
 function sanitizeError(attempt: Attempt): string | null {
   if (attempt.status === 'ok') return null;
+  // Nothing failed, and the *reason* it was blocked is a classifier's claim about a
+  // person. The status column already records that a block happened; the category stays
+  // in memory and is never written down.
+  if (attempt.status === 'blocked') return null;
 
   if (attempt.status === 'schema_error') {
     const count = attempt.schemaIssuePaths?.length ?? 0;
@@ -196,6 +206,36 @@ export class AiService {
     throw this.toAppError(last);
   }
 
+  /**
+   * Records a request the safety layer stopped, without calling a provider.
+   *
+   * A separate entry point rather than a branch inside `run()`, for two reasons. The
+   * retry loop, the provider lookup and the metering in `run()` are the most heavily
+   * tested code in the AI layer and none of it applies to a request that never leaves
+   * the process. And the ledger has to stay the one place `ai_runs` is written — a
+   * caller that wrote its own blocked row would be the second.
+   *
+   * What lands in the row: the purpose, the provider that *would* have been called, the
+   * model that *would* have been used, `status = blocked`, `attempt = 1`, the real time
+   * the gate took, no usage, and `cost_usd` null, because nothing was spent. What does
+   * not land in it: the text, the prompt, or which category matched.
+   */
+  async recordBlocked<S extends ZodTypeAny>(input: AiRunRequest<S>): Promise<AiRunRow> {
+    const startedAt = this.now();
+    const provider = this.providers.get(input.provider);
+    const latencyMs = Math.max(0, this.now() - startedAt);
+
+    return this.record(
+      input,
+      // Named even when unconfigured: the row says which vendor the call was headed for,
+      // which is what makes blocked runs comparable with the ones that went through.
+      provider ?? { name: input.provider },
+      { status: 'blocked' },
+      1,
+      latencyMs,
+    );
+  }
+
   /** One provider call plus its schema verdict. Never throws for a provider failure. */
   private async attempt<S extends ZodTypeAny>(
     provider: AiProvider,
@@ -233,7 +273,9 @@ export class AiService {
 
   private async record<S extends ZodTypeAny>(
     input: AiRunRequest<S>,
-    provider: AiProvider,
+    // Only the name is used, so a blocked run can name its intended vendor without
+    // requiring one to be configured.
+    provider: Pick<AiProvider, 'name'>,
     attempt: Attempt,
     attemptNumber: number,
     latencyMs: number,
@@ -249,6 +291,9 @@ export class AiService {
       // Length, never content. Overridable so an image caller can report bytes instead.
       inputChars: input.meta?.inputChars ?? input.user.length,
       ...(attempt.schemaIssuePaths ? { schemaErrorPaths: attempt.schemaIssuePaths } : {}),
+      // A flag, not a reason: enough to count blocked runs, not enough to reconstruct
+      // what anyone typed or what a classifier concluded about them.
+      ...(attempt.status === 'blocked' ? { safety: 'blocked' as const } : {}),
     };
 
     return this.deps.runs.record({

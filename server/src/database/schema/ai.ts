@@ -33,6 +33,14 @@ export interface AiRequestMeta {
   imageMime?: string;
   /** Zod paths that failed, e.g. `items.0.unit`. Paths only, never values. */
   schemaErrorPaths?: string[];
+  /**
+   * Set when the safety layer stopped the request before a provider was called.
+   *
+   * A flag, never a category: which rule matched is a classifier's claim about a person,
+   * and this table is not the place to accumulate those. Counting blocked runs is the
+   * only thing it needs to support.
+   */
+  safety?: 'blocked';
 }
 
 export const aiRuns = pgTable(

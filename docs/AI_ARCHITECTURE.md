@@ -351,58 +351,140 @@ insight quality changes, you can tell whether a prompt edit caused it.
 
 ---
 
-## 6. Health safety (§31) — enforced in three places
+## 6. Health safety (§31)
 
-Prompt instructions alone are not a safety mechanism. Each rule is enforced structurally
-wherever it can be.
+> **As built (Task 5).** The previous version of this section described a safety system
+> that did not exist — an input classifier, output blocklists, a `safetyFlag` on
+> responses, a `PatternNarrationSchema`. What follows is what the code does. The gap
+> between the two is recorded at the end.
 
-| Rule | Enforcement |
-|---|---|
-| Never claim to be a doctor | System prompt + response filter on medical-claim phrasing |
-| No diagnosis | System prompt; `safetyFlag` classifier on user input |
-| No fasting / extreme restriction advice | System prompt + **blocklist filter on output** |
-| No overtraining encouragement | System prompt |
-| No body/appearance ideals | System prompt + output filter |
-| Calories are estimates | **Schema requires `isEstimate: true`**; API always sends the disclaimer |
-| No causal claims from correlation | **`PatternNarrationSchema` requires a `caveat` field**; the prompt forbids causal verbs |
-| Serious concern → real human | Classifier → templated supportive response; the model is **not** asked to advise |
-
-### The correlation rule, concretely
-
-Prompt instruction:
-
-> You may describe what appeared *alongside* what in this person's own data. You may never
-> state or imply that one caused the other. Write "on days when X, Y often also happened",
-> never "X causes Y" or "X makes you Y". If you cannot phrase an observation without implying
-> cause, omit it.
-
-Schema enforcement:
-
-```ts
-export const PatternNarrationSchema = z.object({
-  narrative: z.string().max(400),
-  narrativeEn: z.string().max(400),
-  caveat: z.string().min(20),        // required — cannot be omitted
-  causalLanguageCheck: z.literal(true),
-});
+```
+user text → screenInput → AiService → provider → Zod → safeDisplayText → domain
+                 │                                          │
+            blocked: no provider call,              model-authored strings
+            ai_runs(status=blocked)                 sanitised before storage
+                 ↓
+          RuleBasedMealParser
 ```
 
-Post-validation filter rejects narratives matching causal verbs
-(`khiến`, `làm cho`, `gây ra`, `causes`, `makes you`, `leads to`, `because of`) and retries once.
+Everything lives in `src/ai/safety/` and imports no domain type, so the same gates serve
+vision and agent surfaces later. What varies per surface is the *policy*, which is one
+table — `ACTIVE_CATEGORIES` in `safety-types.ts`.
 
-✅ *"Trong dữ liệu 14 ngày gần đây, những ngày bạn ngủ muộn thường đi kèm với việc bữa sáng
-được ghi nhận muộn hơn."*
-❌ *"Ngủ ít khiến bạn bỏ bữa sáng."*
+### Input gate — purpose-scoped, deliberately narrow
 
-### Safety escalation
+`screenInput(text, purpose)` is pure and synchronous. A category is screened for only
+where a detector actually runs:
 
-When the input classifier flags disordered-eating signals, self-harm, or acute medical
-symptoms, the request **does not reach the reasoning model as an advice request**. A
-templated, warm response acknowledges the person and points toward a trusted adult or an
-appropriate professional. `safetyFlag` is returned to the client and the run is recorded.
+| Purpose | Active categories |
+|---|---|
+| `meal_parse`, `meal_vision` | `prompt_injection`, `off_topic_misuse` |
+| `daily`, `weekly`, `pattern`, `chat`, `plan` | `prompt_injection` |
 
-This is deliberate: the failure mode of asking a model to "respond carefully" to a crisis is
-that it sometimes responds confidently instead.
+`sensitive_crisis`, `unsafe_health_request` and `unsafe_food_behavior` exist in the type
+and are active **nowhere**. That is deliberate, not an oversight:
+
+> **Broad conversational crisis and health screening is deferred to the Agent layer
+> (Task 8).** A meal-logging field is the wrong place for it. "đói chết đi được" and
+> "I'm starving" are how people describe being hungry, and a classifier that treats them
+> as distress makes the app unusable while helping no one. Screening belongs where
+> somebody is actually talking to the app.
+
+The governing bias: **blocking a real meal is worse than admitting a probe.** A probe
+that gets through meets a strict schema and achieves nothing; a refused dinner loses the
+feature. Every pattern is multi-word and anchored, and the test suite carries an
+allow-corpus of real Vietnamese and English meal language — with and without diacritics,
+with emoji, with hunger idioms — that must never be blocked.
+
+A block is **not** an error. The text still goes to `RuleBasedMealParser`, which has no
+instructions to override and cannot be injected, so the meal is still logged. No new
+error code, no change to the `/meals/parse` contract, and no `safetyFlag` on the
+response — the meal-parse contract is frozen.
+
+### Prompt injection — architecture first, patterns second
+
+The real defence is structural, and holds whether or not any pattern matches:
+
+```
+system instructions (never contain user text)
+  + user content in the messages array, fenced in <meal_description>
+  + strict JSON schema with no field an instruction could express itself in
+  + property-by-property mapping into the domain
+```
+
+The pattern screen in front of it is a cost optimisation: it refuses an obvious probe
+before it becomes a billed call. Treating it as the guarantee would be the mistake.
+
+### Nutrition boundary (unchanged from Task 4)
+
+`.strict()` on both extraction objects, and a mapping that copies five named fields. A
+response carrying `kcal` fails validation, is recorded as `schema_error`, and falls back.
+Nothing numeric the model authored can reach the domain; every figure still comes from
+the food database through the resolver.
+
+### Output gate
+
+The Zod schema guarantees *shape*, not string contents — and two model-authored strings
+travel further than they look. `ParsedItem.name` becomes `detectedName`, which is stored
+on the meal item and returned; `ambiguous[]` is echoed verbatim. `safeDisplayText`
+removes control, zero-width and bidirectional characters, collapses whitespace, and drops
+anything shaped like an instruction.
+
+It deletes and never substitutes, so `cơm tấm sườn bì chả`, `bún bò Huế` and `🍚 cơm`
+survive byte-identical. A food name is not a safety problem, and treating it as one would
+cost more than the risk.
+
+### Medical boundary
+
+Prompt-level, and honestly so: the extraction prompt forbids diagnosis, dietary advice
+and health judgements, and the extraction schema has no field in which advice could be
+returned. There is **no medical classifier**, because there is no prose surface to apply
+one to — `/meals/parse` returns structured data only. When a conversational surface
+exists, its policy is Task 8's.
+
+### Causal filtering — infrastructure, not yet wired
+
+`filterCausalClaims(text)` is pure, deterministic, dependency-free, and **has no caller**.
+Nothing in AURA generates prose today. It exists so that daily analysis, weekly analysis,
+pattern narration and agent replies inherit the rule rather than each reinventing it;
+actual consumption belongs to Phase 5 and Task 8.
+
+*"X caused Y"* → *"X often occurred alongside Y"*. The association wording is invariant
+to subject number and tense, which is what makes a deterministic rewrite grammatical.
+
+| Input | Result |
+|---|---|
+| `causes` / `caused` / `leads to` / `results in` / `contributes to` | rewritten |
+| `gây ra` / `gây` / `dẫn đến` / `khiến` / `làm cho` | rewritten |
+| `makes you …` / `made you …` / `is the reason why` | **rejected** — no safe rewrite exists |
+| `because`, `vì`, `is associated with`, `thường xuất hiện cùng` | untouched |
+
+It rejects rather than guesses. Re-inflecting the verb after "makes you" would produce a
+sentence nobody wrote, so the caller is told to drop it and say something it can stand
+behind. `because` is not matched, and `\b` is what prevents it matching the `cause`
+inside it.
+
+### Privacy
+
+Nothing about a blocked request is persisted beyond the fact that one happened:
+
+```json
+{ "promptVersion": "meal-extract-v1", "inputChars": 42, "safety": "blocked" }
+```
+
+`ai_runs.error` stays `null` for a block, and the category that matched is never written
+down — which rule fired is a classifier's claim about a person, and a health app should
+not accumulate those. No raw prompt, no raw response, no user text, in the ledger or in
+the logs.
+
+### What is not built
+
+| Described before | Status |
+|---|---|
+| `safetyFlag` on the API response | Not built. It would change the frozen `/meals/parse` contract; it belongs to the agent response shape. |
+| `PatternNarrationSchema`, `isEstimate`, `caveat` | Not built. Phase 5, with pattern narration. |
+| Input crisis classifier | Deferred to Task 8, on purpose (above). |
+| Output blocklist on dieting/appearance language | Not built. No prose surface to filter. |
 
 ---
 

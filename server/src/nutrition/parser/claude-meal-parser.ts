@@ -1,4 +1,5 @@
 import type { AiService } from '../../ai/ai.service.js';
+import { safeDisplayText, screenInput } from '../../ai/safety/index.js';
 import { AppError } from '../../lib/errors.js';
 import type { MealParser, ParseContext, ParsedItem, ParsedMeal } from './meal-parser.js';
 import {
@@ -86,6 +87,26 @@ export class ClaudeMealParser implements MealParser {
       throw new Error('ClaudeMealParser requires the authenticated user id to meter its calls');
     }
 
+    // The gate runs before anything is spent. A block is not a failure — the text is
+    // still a meal description as far as the app is concerned, so it goes to the
+    // deterministic parser, which has no instructions to override and cannot be
+    // injected. The person still logs their dinner; the model simply never sees it.
+    const decision = screenInput(text, 'meal_parse');
+    if (decision.action === 'block') {
+      await this.deps.ai.recordBlocked({
+        userId: context.userId,
+        purpose: 'meal_parse',
+        provider: 'anthropic',
+        model: this.deps.model,
+        schema: mealExtractionSchema,
+        system: MEAL_EXTRACTION_SYSTEM_PROMPT,
+        user: buildMealExtractionUserMessage(text, context.locale),
+        meta: { promptVersion: MEAL_EXTRACTION_PROMPT_VERSION },
+      });
+
+      return this.deps.fallback.parse(text, context);
+    }
+
     let extraction: MealExtraction;
     try {
       const result = await this.deps.ai.run({
@@ -108,9 +129,20 @@ export class ClaudeMealParser implements MealParser {
       return this.deps.fallback.parse(text, context);
     }
 
+    // Both of these are model-authored strings that get stored and shown: `name`
+    // becomes `detectedName` on the meal item, and `ambiguous` is echoed in the
+    // response. Sanitising drops invisible and bidirectional characters and anything
+    // shaped like an instruction; it leaves every letter, diacritic and emoji alone, so
+    // "cơm tấm sườn bì chả" arrives intact.
     return {
-      items: extraction.items.map(toParsedItem),
-      ambiguous: extraction.ambiguous,
+      items: extraction.items.flatMap((item) => {
+        const name = safeDisplayText(item.name, 'meal_parse');
+        return name === null ? [] : [toParsedItem(item, name)];
+      }),
+      ambiguous: extraction.ambiguous.flatMap((fragment) => {
+        const safe = safeDisplayText(fragment, 'meal_parse');
+        return safe === null ? [] : [safe];
+      }),
       parser: this.name,
     };
   }
@@ -123,9 +155,9 @@ export class ClaudeMealParser implements MealParser {
  * schema happened to allow, which makes the boundary depend on the schema staying strict
  * forever; naming the five fields makes it depend on nothing.
  */
-function toParsedItem(item: MealExtraction['items'][number]): ParsedItem {
+function toParsedItem(item: MealExtraction['items'][number], name: string): ParsedItem {
   return {
-    name: item.name,
+    name,
     quantity: item.quantity,
     unit: item.unit,
     // `null` is how the schema says "the user gave no size"; the domain says that with
