@@ -3,6 +3,7 @@ import type { Env } from './config/env.js';
 import type { Database } from './database/client.js';
 import { loggerOptions } from './lib/logger.js';
 import type { SupabaseAuthClient } from './modules/auth/supabase-auth-client.js';
+import type { MealParser } from './nutrition/parser/meal-parser.js';
 import { registerErrorHandler } from './middleware/error-handler.js';
 import { registerOpenApi } from './middleware/openapi.js';
 import { registerRateLimit } from './middleware/rate-limit.js';
@@ -18,6 +19,8 @@ export interface BuildAppOptions {
   logger?: boolean;
   /** Injected by tests so sign-out does not reach Supabase. */
   supabaseAuth?: SupabaseAuthClient;
+  /** Injected by tests so the Claude parser can run over a scripted provider. */
+  mealParser?: MealParser;
 }
 
 /**
@@ -61,6 +64,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     env,
     database,
     ...(options.supabaseAuth ? { supabaseAuth: options.supabaseAuth } : {}),
+    ...(options.mealParser ? { mealParser: options.mealParser } : {}),
   });
 
   return app;

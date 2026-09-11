@@ -126,6 +126,43 @@ SDK's `zodOutputFormat()` helper is **not** usable here: it imports from `zod/v4
 on Zod 3. Structured output constrains the shape; it does not replace validation, and the
 response is still `safeParse`d by `AiService`.
 
+### The first caller: meal extraction (Task 4)
+
+```
+POST /api/meals/parse → MealsService.parseToDraft → MealParser
+                                                      ↓
+                                             ClaudeMealParser  (parser: "claude-v1")
+                                                      ↓
+                                        AiService → ClaudeProvider → Anthropic
+                                                      ↓ on failure
+                                             RuleBasedMealParser  (parser: "rule-based-v1")
+                                                      ↓
+                                    ParsedMeal → foodResolver → nutrition
+```
+
+`src/nutrition/parser/meal-extraction.ts` holds the prompt, the strict Zod schema and the
+JSON Schema derived from it. It lives in `nutrition/` rather than `ai/` because it imports
+`MEAL_UNITS`, and `ai/` must stay free of domain types.
+
+**Claude never supplies a number about food.** The schema is `.strict()` on both objects, so a
+response carrying `kcal` fails validation, is recorded as a `schema_error`, and falls back —
+the value never reaches the domain. Every figure in the response still comes from the food
+database by way of the resolver.
+
+**Which failures fall back.** `AI_SCHEMA_ERROR`, `PROVIDER_ERROR` and `PROVIDER_UNAVAILABLE` —
+schema failure after the retry, 4xx, 5xx, connection loss, timeout, and refusal. Each one is
+already written to `ai_runs` with its status and a sanitised code, so falling back degrades
+the reading without hiding the cause: a bad key shows up as a run of `provider_error status
+401` rows. Anything else — a `TypeError`, a missing caller identity — propagates, because a
+parser that swallowed bugs would make every one look like an outage.
+
+An empty reading is *not* a fallback case. If Claude reports no food, that is an answer, and
+`parseToDraft` raises its existing `VALIDATION_ERROR`.
+
+`ParseContext.userId` was added to `MealParser` for one reason: `ai_runs.user_id` is `NOT NULL`
+under RLS, so a model-backed parser has to know the authenticated caller. It comes from the
+verified token via `MealsService`, never from the meal text.
+
 ---
 
 ## 3. Every model call is validated (Rule 10)

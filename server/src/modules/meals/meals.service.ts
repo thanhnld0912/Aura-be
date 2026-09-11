@@ -112,7 +112,9 @@ export class MealsService {
     text: string,
     mealType: MealRow['mealType'],
   ): Promise<{ meal: MealWithItems; ambiguous: string[]; parser: string }> {
-    const parsed = await this.deps.parser.parse(text);
+    // The caller's identity travels with the parse: a model-backed parser has to meter
+    // the call against the authenticated user, and it must never read that from `text`.
+    const parsed = await this.deps.parser.parse(text, { userId });
 
     if (parsed.items.length === 0) {
       throw new ValidationError('text: no foods could be read from that', [

@@ -3,6 +3,7 @@ import postgres from 'postgres';
 import { buildApp } from '../../src/app.js';
 import { createDatabase, type Database } from '../../src/database/client.js';
 import { stubSupabaseAuth, testEnv } from './app.js';
+import type { MealParser } from '../../src/nutrition/parser/meal-parser.js';
 
 /**
  * Harness for the tests that need a real PostgreSQL.
@@ -34,14 +35,22 @@ export interface DatabaseHarness {
   close(): Promise<void>;
 }
 
-export async function createDatabaseHarness(): Promise<DatabaseHarness> {
+export async function createDatabaseHarness(
+  options: { mealParser?: MealParser } = {},
+): Promise<DatabaseHarness> {
   const url = TEST_DATABASE_URL;
   if (!url) throw new Error('TEST_DATABASE_URL is not set');
 
   const env = testEnv({ DATABASE_URL: url });
   const database = createDatabase(env);
   const supabaseAuth = stubSupabaseAuth();
-  const app = await buildApp({ env, database, supabaseAuth, logger: false });
+  const app = await buildApp({
+    env,
+    database,
+    supabaseAuth,
+    ...(options.mealParser ? { mealParser: options.mealParser } : {}),
+    logger: false,
+  });
   const sql = postgres(url, { max: 4, prepare: false, onnotice: () => {} });
 
   await ensureRlsRole(sql);

@@ -26,8 +26,14 @@ import { MealsRepository } from '../modules/meals/meals.repository.js';
 import { mealsRoutes } from '../modules/meals/meals.routes.js';
 import { MealsService } from '../modules/meals/meals.service.js';
 import { nutritionRoutes } from '../modules/nutrition/nutrition.routes.js';
+import { AiService } from '../ai/ai.service.js';
+import { AiRunsRepository } from '../ai/ai-runs.repository.js';
+import { estimateCost } from '../ai/pricing.js';
+import { ClaudeProvider } from '../ai/providers/claude-provider.js';
 import { FoodRepository } from '../nutrition/food-repository.js';
 import { FoodResolver } from '../nutrition/food-resolver.js';
+import { ClaudeMealParser } from '../nutrition/parser/claude-meal-parser.js';
+import type { MealParser } from '../nutrition/parser/meal-parser.js';
 import { RuleBasedMealParser } from '../nutrition/parser/rule-based-parser.js';
 import { LocalFoodProvider } from '../nutrition/providers/local-food-provider.js';
 import { OpenFoodFactsProvider } from '../nutrition/providers/open-food-facts-provider.js';
@@ -57,6 +63,38 @@ export interface RouteDependencies {
   database: Database;
   /** Injected by tests so sign-out does not reach the network. */
   supabaseAuth?: SupabaseAuthClient;
+  /**
+   * Injected by tests so the Claude path can be exercised over a scripted provider
+   * rather than the network — the same seam, and the same reason, as `supabaseAuth`.
+   */
+  mealParser?: MealParser;
+}
+
+/**
+ * Which parser reads a meal sentence (AI_ARCHITECTURE.md §2).
+ *
+ * The deterministic parser is always built, because it is the fallback — it has to
+ * exist whether or not Claude does. Claude layers on top only when a key is configured,
+ * the same conditional shape the nutrition providers use above and for the same reason:
+ * a provider with no key fails every call, which is worse than one that is honestly
+ * absent. Here it would also mean an `ai_runs` row per meal recording nothing but a 401.
+ *
+ * Exported so the choice itself is testable without standing up an app.
+ */
+export function createMealParser(env: Env, db: Database['db']): MealParser {
+  const ruleBased = new RuleBasedMealParser();
+  if (!env.ANTHROPIC_API_KEY) return ruleBased;
+
+  return new ClaudeMealParser({
+    ai: new AiService({
+      providers: [new ClaudeProvider({ apiKey: env.ANTHROPIC_API_KEY })],
+      runs: new AiRunsRepository(db),
+      // Task 3's published price table. An unknown model prices as null, never a guess.
+      estimateCost,
+    }),
+    model: env.AI_MODEL_EXTRACTION,
+    fallback: ruleBased,
+  });
 }
 
 export async function registerRoutes(
@@ -113,15 +151,14 @@ export async function registerRoutes(
   }
 
   const foodResolver = new FoodResolver({ providers, repository: foodRepository });
+
   const mealsService = new MealsService({
     repository: mealsRepository,
     resolver: foodResolver,
     foods: foodRepository,
     events: eventsService,
     getDayRefresher: () => dayRefresher,
-    // Phase 3 ships the deterministic parser; the Claude implementation plugs in here
-    // behind the same interface in Phase 4.
-    parser: new RuleBasedMealParser(),
+    parser: options.mealParser ?? createMealParser(env, db),
   });
 
   const jwtVerifier = createJwtVerifier({

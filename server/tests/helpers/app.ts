@@ -4,6 +4,7 @@ import { buildApp } from '../../src/app.js';
 import { parseEnv, type Env } from '../../src/config/env.js';
 import type { Database, Db } from '../../src/database/client.js';
 import type { SupabaseAuthClient } from '../../src/modules/auth/supabase-auth-client.js';
+import type { MealParser } from '../../src/nutrition/parser/meal-parser.js';
 
 export const TEST_ORIGIN = 'http://localhost:3000';
 export const TEST_SUPABASE_URL = 'https://project.supabase.co';
@@ -82,12 +83,18 @@ export function stubSupabaseAuth(): SupabaseAuthClient & { revoked: string[] } {
 }
 
 export async function buildTestApp(
-  options: { env?: Env; database?: Database; supabaseAuth?: SupabaseAuthClient } = {},
+  options: {
+    env?: Env;
+    database?: Database;
+    supabaseAuth?: SupabaseAuthClient;
+    mealParser?: MealParser;
+  } = {},
 ): Promise<FastifyInstance> {
   return buildApp({
     env: options.env ?? testEnv(),
     database: options.database ?? stubDatabase(),
     supabaseAuth: options.supabaseAuth ?? stubSupabaseAuth(),
+    ...(options.mealParser ? { mealParser: options.mealParser } : {}),
     logger: false,
   });
 }

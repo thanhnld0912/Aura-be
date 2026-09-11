@@ -36,7 +36,24 @@ export interface ParsedMeal {
   parser: string;
 }
 
+/**
+ * What the caller knows that the sentence does not.
+ *
+ * `userId` is here for one reason: a parser that calls a model has to meter the call,
+ * and `ai_runs.user_id` is `NOT NULL` under a row-level security policy that compares it
+ * to `auth.uid()`. The identity has to come from the authenticated caller — never from
+ * the text being parsed — so it travels with the request rather than being configured
+ * into the parser at wiring time.
+ *
+ * Deterministic parsers ignore this entirely; `RuleBasedMealParser` never reads it.
+ */
+export interface ParseContext {
+  /** From the verified token, by way of `MealsService`. */
+  userId: string;
+  locale?: 'vi' | 'en';
+}
+
 export interface MealParser {
   readonly name: string;
-  parse(text: string, locale?: 'vi' | 'en'): Promise<ParsedMeal>;
+  parse(text: string, context?: ParseContext): Promise<ParsedMeal>;
 }
