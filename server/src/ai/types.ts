@@ -19,6 +19,20 @@ export interface AiUsage {
 }
 
 /**
+ * An image attached to a request.
+ *
+ * Bytes, never a URL. A provider handed a URL fetches whatever it points at, which would
+ * turn every image field into a server-side request forgery surface. By the time bytes
+ * reach this type they have been sniffed, bounded and re-encoded (`lib/images.ts`), so a
+ * provider only ever transports a known-good image.
+ */
+export interface AiImageInput {
+  /** The type after re-encoding — never a client-declared header. */
+  mimeType: string;
+  data: Buffer;
+}
+
+/**
  * What the caller asks a provider for.
  *
  * `jsonSchema` is a JSON Schema object, not a Zod schema. The provider needs something
@@ -35,6 +49,12 @@ export interface AiRequest {
   jsonSchema: Record<string, unknown>;
   /** Wall-clock budget for one attempt. Providers enforce it; the service times it. */
   timeoutMs: number;
+  /**
+   * Set only by the vision path. A provider that cannot read images must not be named
+   * for such a call — `ClaudeProvider` does not read this field, and nothing in AURA
+   * routes an image to it.
+   */
+  image?: AiImageInput;
 }
 
 /** What a provider returns. `output` is unvalidated — that is the service's job. */

@@ -68,6 +68,8 @@ const ERROR_DESCRIPTIONS: Record<number, string> = {
   400: 'Validation failed. `details` names the offending fields.',
   401: 'Missing, expired or invalid token.',
   404: 'Absent, or owned by another user — the two are deliberately indistinguishable.',
+  413: 'Upload over the size limit, image dimensions over the supported maximum, or more form parts than the endpoint accepts.',
+  415: 'Not multipart/form-data, or the file is not a readable JPEG, PNG or WebP image.',
   429: 'Rate limit exceeded. Carries a `Retry-After` header.',
   500: 'Unexpected failure. The cause is logged; quote `requestId` to find it.',
 };
@@ -79,10 +81,12 @@ const ERROR_DESCRIPTIONS: Record<number, string> = {
  *   400  it validates something — a body, a query string or a path parameter
  *   401  anything that verifies a token, which is everything but the two above
  *   404  it takes an id, and the services behind those throw `NotFoundError`
+ *   413  it accepts an upload: size, dimensions and part counts are enforced on every one
+ *   415  it accepts an upload: the file's bytes are sniffed whatever the header claims
  *   429  always: the rate limiter is registered globally
  *   500  always: an unhandled throw becomes `InternalError`
  *
- * Not derived here, and so not documented: 403, 409, 413, 415, 422, 502 and 503.
+ * Not derived here, and so not documented: 403, 409, 422, 502 and 503.
  * Those depend on what a handler does rather than on the shape of its route, and
  * guessing would put responses in the document that the endpoint never sends. See
  * the report.
@@ -91,11 +95,16 @@ function errorResponsesFor(
   operation: string,
   url: string,
   validatesInput: boolean,
+  acceptsUpload = false,
 ): Record<string, unknown> {
   const codes = new Set<number>([429, 500]);
   if (validatesInput) codes.add(400);
   if (!NO_AUTH_FAILURE_ROUTES.has(operation)) codes.add(401);
   if (url.includes(':id') || url.includes('{id}')) codes.add(404);
+  if (acceptsUpload) {
+    codes.add(413);
+    codes.add(415);
+  }
 
   const responses: Record<string, unknown> = {};
   for (const code of [...codes].sort((a, b) => a - b)) {
@@ -245,6 +254,17 @@ export async function registerOpenApi(app: FastifyInstance): Promise<void> {
         if (isZodSchema(value)) converted[part] = toJsonSchema(value);
       }
 
+      // A multipart route has no Zod body — its payload is a stream the handler validates
+      // itself (`skipBodySchema`). It can still say what it accepts: the route supplies
+      // the form as documentation, emitted under `multipart/form-data` instead of JSON.
+      // The schema Fastify validates with is untouched, as for every other part above.
+      const multipartBody = (route.config as { multipartBody?: Record<string, unknown> } | undefined)
+        ?.multipartBody;
+      if (multipartBody) {
+        converted['body'] = multipartBody;
+        converted['consumes'] = ['multipart/form-data'];
+      }
+
       if (source.response) {
         const responses: Record<string, unknown> = {};
         for (const [statusCode, responseSchema] of Object.entries(source.response)) {
@@ -274,7 +294,7 @@ export async function registerOpenApi(app: FastifyInstance): Promise<void> {
         converted['params'] !== undefined;
 
       converted['response'] = {
-        ...errorResponsesFor(operation, documentedUrl, validatesInput),
+        ...errorResponsesFor(operation, documentedUrl, validatesInput, multipartBody !== undefined),
         ...declared,
       };
 

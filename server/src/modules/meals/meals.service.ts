@@ -1,10 +1,16 @@
-import { ConflictError, NotFoundError, ValidationError } from '../../lib/errors.js';
+import {
+  ConflictError,
+  NotFoundError,
+  ProviderUnavailableError,
+  ValidationError,
+} from '../../lib/errors.js';
 import { toLocalDate, todayIn } from '../../lib/local-date.js';
 import { mealConfidence } from '../../nutrition/confidence.js';
 import type { FoodRepository } from '../../nutrition/food-repository.js';
 import type { DetectedItem, FoodResolver, ResolvedItem } from '../../nutrition/food-resolver.js';
 import { sumNutrients } from '../../nutrition/nutrition-calculator.js';
-import type { MealParser } from '../../nutrition/parser/meal-parser.js';
+import type { ImageMealParser, MealImage } from '../../nutrition/parser/image-meal-parser.js';
+import type { MealParser, ParsedMeal } from '../../nutrition/parser/meal-parser.js';
 import type { MealUnit, Nutrients, PortionSizeLabel } from '../../nutrition/types.js';
 import type { DailyEventsService, DayRefresher } from '../daily-events/daily-events.service.js';
 import type { MealRow, MealWithItems, MealsRepository } from './meals.repository.js';
@@ -45,6 +51,12 @@ export interface MealServiceDeps {
   events: DailyEventsService;
   getDayRefresher: () => DayRefresher;
   parser: MealParser;
+  /**
+   * Reads meal photos. Absent when no vision provider is configured, in which case photo
+   * analysis answers `503` rather than pretending — a photo has no deterministic reading
+   * to fall back to.
+   */
+  imageParser?: ImageMealParser | undefined;
   now?: () => Date;
 }
 
@@ -122,6 +134,51 @@ export class MealsService {
       ]);
     }
 
+    return this.draftFrom(userId, parsed, mealType, text);
+  }
+
+  /**
+   * A meal photo to a reviewable draft (`POST /meals/analyze-image`).
+   *
+   * The same pipeline as `parseToDraft` from the moment a `ParsedMeal` exists: the
+   * resolver and the calculator supply every number, the result is a draft, and nothing
+   * reaches the day — no event, no summary — until the user confirms it. Only the reader
+   * differs, and the absence of a fallback: a photo has no deterministic reading, so a
+   * vision failure surfaces as the error `AiService` chose rather than as a guess.
+   */
+  async analyzeImageToDraft(
+    userId: string,
+    image: MealImage,
+    description: string | undefined,
+    mealType: MealRow['mealType'],
+  ): Promise<{ meal: MealWithItems; ambiguous: string[]; parser: string }> {
+    const reader = this.deps.imageParser;
+    if (!reader) {
+      throw new ProviderUnavailableError('Photo analysis is not available right now');
+    }
+
+    // Identity from the verified token, never from the form.
+    const parsed = await reader.parse({ image, description }, { userId });
+
+    if (parsed.items.length === 0) {
+      throw new ValidationError('image: no foods could be identified in that photo', [
+        { path: 'image', issue: 'no_food_detected' },
+      ]);
+    }
+
+    // The description, if any, is kept as the user's own words, exactly as `/parse` keeps
+    // its sentence. The photo is not kept at all: `image_key` stays null, because there is
+    // no storage behind this endpoint.
+    return this.draftFrom(userId, parsed, mealType, description ?? null);
+  }
+
+  /** Resolves a parsed meal against the food database and stores it as a draft. */
+  private async draftFrom(
+    userId: string,
+    parsed: ParsedMeal,
+    mealType: MealRow['mealType'],
+    rawInput: string | null,
+  ): Promise<{ meal: MealWithItems; ambiguous: string[]; parser: string }> {
     const resolved: ResolvedItem[] = [];
     for (const item of parsed.items) {
       resolved.push(
@@ -144,7 +201,7 @@ export class MealsService {
       userId,
       mealType,
       status: 'draft',
-      rawInput: text,
+      rawInput,
       eventId: null,
       totals: this.totalsOf(resolved),
       confidence: mealConfidence(resolved.map((item) => item.confidence)),

@@ -309,7 +309,27 @@ Errors: `422 AI_SCHEMA_ERROR` after one retry; `429` (10/hour); `502 PROVIDER_ER
 
 `multipart/form-data` · fields: `image` (≤8 MB, jpeg/png/webp), `mealType?`, `occurredAt?`
 
-Pipeline is `ARCHITECTURE.md` §4. Response is identical in shape to `/parse`, plus:
+> **As built (Phase 4, Task 6)** — narrower than the design below, which is kept for the
+> storage work still to come:
+>
+> - **Fields:** `image` (required; up to `MAX_UPLOAD_BYTES`, 8 MB by default; JPEG, PNG or WebP
+>   *by content*), `mealType?` (default `lunch`), `description?` (≤ 500 chars, untrusted).
+>   Unknown fields are a `400`; a `userId` in the form is never honoured.
+> - **Response:** exactly the `/parse` shape, `{ meal, ambiguous, parser }`, with
+>   `parser: "gemini-vision-v1"`. The meal is a **draft** — every number comes from the food
+>   database, and no event or summary exists until it is confirmed.
+> - **No storage.** No `imageUrl`, `imageKey` or signed URL. The photo is re-encoded, stripped of
+>   all metadata including GPS, analysed and dropped; `meals.image_key` stays null.
+> - **No `boundingBoxHint`**, no per-item `source: "vision"`, and no `occurredAt` (`/parse` takes
+>   none either). Items use the existing meal item schema, unchanged.
+> - **No `504` with a persisted draft.** A timeout after the retry is `503`.
+> - **Errors:** `400` (empty file, missing image, bad field, no food found), `401`, `413` (size,
+>   dimensions, part counts), `415` (not multipart, or not a readable JPEG/PNG/WebP),
+>   `422 AI_SCHEMA_ERROR`, `429` (20/day), `502 PROVIDER_ERROR` (rejected or refused),
+>   `503 PROVIDER_UNAVAILABLE` (outage, timeout, or no `GEMINI_API_KEY`). 25 s per attempt, one
+>   retry.
+
+Original design. Pipeline is `ARCHITECTURE.md` §4. Response is identical in shape to `/parse`, plus:
 
 ```json
 { "imageUrl": "https://…signed…", "imageKey": "u/<uid>/2026/09/<ulid>.webp",

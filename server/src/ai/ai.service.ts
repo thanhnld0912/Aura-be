@@ -6,6 +6,7 @@ import type { AiProvider } from './providers/ai-provider.js';
 import {
   isAiProviderFailure,
   type AiCompletion,
+  type AiImageInput,
   type AiProviderFailure,
   type AiProviderName,
   type AiPurpose,
@@ -64,6 +65,11 @@ export interface AiRunRequest<S extends ZodTypeAny> {
   user: string;
   /** JSON Schema handed to the provider, when it can constrain its own output. */
   jsonSchema?: Record<string, unknown>;
+  /**
+   * Image bytes for a vision call. Carried to the provider and nowhere else — `record()`
+   * reads `meta`, never this, so no image byte can reach `ai_runs`.
+   */
+  image?: AiImageInput;
   maxTokens?: number;
   timeoutMs?: number;
   /** Merged into `request_meta`. Shape and size only — the type has no room for content. */
@@ -178,6 +184,7 @@ export class AiService {
       maxTokens: input.maxTokens ?? DEFAULT_MAX_TOKENS,
       timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       jsonSchema: input.jsonSchema ?? {},
+      ...(input.image ? { image: input.image } : {}),
     };
 
     let last: Attempt | undefined;

@@ -100,6 +100,21 @@ image, not a polyglot. Nothing is served back from the original bytes.
 GPS stripping is not incidental — a meal photo taken at home carries the user's home address
 in EXIF, and this is a product used by people who may be minors.
 
+**As built (Phase 4, Task 6).** Every row above except storage and the storage key is enforced,
+in `src/lib/images.ts` and `POST /api/meals/analyze-image`. Photos are analysed and discarded;
+nothing is stored yet, so no URL — signed or otherwise — exists. Three deliberate readings of the
+table:
+
+- **Dimensions.** The 4096×4096 figure is applied to the *output* (images are re-encoded to fit
+  inside 2048 px). As an *input* limit it would refuse the 48–50 MP photos current phones save by
+  default. The decompression-bomb guard sits on **declared** dimensions at 50 MP, checked from the
+  header before any pixel is decoded, and again during the decode.
+- **Ordering.** Stripping happens before the image leaves the process, so GPS never reaches the
+  vision provider either — the control matters even with no storage.
+- **Authentication first.** The route authenticates in a preHandler, before the multipart body is
+  read, so an unauthenticated upload is never buffered. Multipart parsing is registered for that
+  one route only.
+
 ---
 
 ## 5. Rate limiting

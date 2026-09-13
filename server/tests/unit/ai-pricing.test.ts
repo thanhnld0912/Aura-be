@@ -28,6 +28,15 @@ describe('priceFor', () => {
     });
   });
 
+  it('prices the configured vision model at the published Gemini rates', () => {
+    // Verified against ai.google.dev/gemini-api/docs/pricing (Standard tier) on 2026-09-13.
+    expect(priceFor('gemini-2.5-flash')).toEqual({
+      inputPerMTok: 0.3,
+      outputPerMTok: 2.5,
+      cacheReadPerMTok: 0.03,
+    });
+  });
+
   it('prices a pinned snapshot as the model it snapshots', () => {
     expect(priceFor('claude-haiku-4-5-20251001')).toEqual(priceFor('claude-haiku-4-5'));
   });
@@ -36,7 +45,7 @@ describe('priceFor', () => {
     // Including near-misses: a family resemblance is not a price.
     expect(priceFor('claude-sonnet-5')).toBeNull();
     expect(priceFor('claude-haiku-9')).toBeNull();
-    expect(priceFor('gemini-2.5-flash')).toBeNull();
+    expect(priceFor('gemini-2.5-pro')).toBeNull();
     expect(priceFor('')).toBeNull();
   });
 });

@@ -122,6 +122,52 @@ export const parsedMealSchema = z.object({
   parser: z.string(),
 });
 
+/**
+ * The text fields of `POST /meals/analyze-image`.
+ *
+ * Validated by the handler rather than by Fastify: a multipart body is a stream, so the
+ * route opts out of the body-schema guard with `skipBodySchema`, exactly as
+ * `middleware/validation.ts` provides for. The file part is checked by `lib/images.ts`.
+ * `.strict()` for the same reason as every other body here: an unexpected field is a
+ * client bug worth hearing about, not something to ignore.
+ */
+export const analyzeImageFieldsSchema = z
+  .object({
+    mealType: mealTypeSchema.default('lunch'),
+    /** Optional context from the user. Untrusted, and screened before any model sees it. */
+    description: z.string().trim().min(1).max(500).optional(),
+  })
+  .strict();
+
+/**
+ * The multipart form, as the OpenAPI document describes it.
+ *
+ * Plain JSON Schema rather than Zod, because nothing validates against it — it exists so
+ * the contract names the fields a client must send. `middleware/openapi.ts` emits it
+ * under `multipart/form-data`. Kept beside `analyzeImageFieldsSchema` so the two are
+ * edited together.
+ */
+export const analyzeImageFormDocumentation = {
+  type: 'object',
+  required: ['image'],
+  properties: {
+    image: {
+      type: 'string',
+      format: 'binary',
+      description:
+        'JPEG, PNG or WebP, up to the upload limit (8 MB by default). Checked by content ' +
+        'rather than by header, re-encoded, and stripped of all metadata including GPS ' +
+        'before analysis. Never stored.',
+    },
+    mealType: { type: 'string', enum: [...mealTypeSchema.options], default: 'lunch' },
+    description: {
+      type: 'string',
+      maxLength: 500,
+      description: 'Optional hint about what the food is. Treated as untrusted text.',
+    },
+  },
+} as const;
+
 /** The standing caveat. Never omitted, and deliberately not phrased as a warning. */
 export const ESTIMATE_NOTICE =
   'Nutrition figures are estimates based on typical portions — adjust anything that looks off.';

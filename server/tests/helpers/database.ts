@@ -3,6 +3,7 @@ import postgres from 'postgres';
 import { buildApp } from '../../src/app.js';
 import { createDatabase, type Database } from '../../src/database/client.js';
 import { stubSupabaseAuth, testEnv } from './app.js';
+import type { ImageMealParser } from '../../src/nutrition/parser/image-meal-parser.js';
 import type { MealParser } from '../../src/nutrition/parser/meal-parser.js';
 
 /**
@@ -36,7 +37,7 @@ export interface DatabaseHarness {
 }
 
 export async function createDatabaseHarness(
-  options: { mealParser?: MealParser } = {},
+  options: { mealParser?: MealParser; imageMealParser?: ImageMealParser } = {},
 ): Promise<DatabaseHarness> {
   const url = TEST_DATABASE_URL;
   if (!url) throw new Error('TEST_DATABASE_URL is not set');
@@ -49,6 +50,7 @@ export async function createDatabaseHarness(
     database,
     supabaseAuth,
     ...(options.mealParser ? { mealParser: options.mealParser } : {}),
+    ...(options.imageMealParser ? { imageMealParser: options.imageMealParser } : {}),
     logger: false,
   });
   const sql = postgres(url, { max: 4, prepare: false, onnotice: () => {} });

@@ -17,6 +17,12 @@ import type { AuthenticatedUser } from '../modules/auth/auth.service.js';
 declare module 'fastify' {
   interface FastifyContextConfig {
     skipBodySchema?: boolean;
+    /**
+     * What a `skipBodySchema` route accepts, as OpenAPI should describe it: a JSON Schema
+     * for its `multipart/form-data` body. Documentation only — the validator never sees
+     * it, and the handler validates the stream itself (`middleware/openapi.ts`).
+     */
+    multipartBody?: Readonly<Record<string, unknown>>;
   }
 
   interface FastifyRequest {

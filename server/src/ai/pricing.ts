@@ -19,10 +19,12 @@ import type { AiUsage } from './types.js';
  *
  * ## Source
  *
- * https://platform.claude.com/docs/en/about-claude/pricing, read 2026-09-10. USD per
- * million tokens. These are list prices — an account with negotiated discounts, or one
- * routed through Bedrock or Vertex, pays something else, and this table does not know
- * that.
+ * - Anthropic: https://platform.claude.com/docs/en/about-claude/pricing, read 2026-09-10.
+ * - Google: https://ai.google.dev/gemini-api/docs/pricing (Standard tier), read 2026-09-13.
+ *
+ * USD per million tokens. These are list prices — an account with negotiated discounts,
+ * or one routed through Bedrock, Vertex or a batch tier, pays something else, and this
+ * table does not know that.
  */
 
 export interface ModelPrice {
@@ -35,8 +37,8 @@ export interface ModelPrice {
 
 /**
  * Only the models AURA is configured to call (`AI_MODEL_EXTRACTION`,
- * `AI_MODEL_REASONING`). Adding a model here is a two-line change; guessing at one from
- * a family resemblance is how a billing dashboard starts lying.
+ * `AI_MODEL_REASONING`, `AI_MODEL_VISION`). Adding a model here is a two-line change;
+ * guessing at one from a family resemblance is how a billing dashboard starts lying.
  *
  * Dated snapshots (`claude-haiku-4-5-20251001`) resolve to their base model below, since
  * a snapshot is priced as the model it snapshots.
@@ -44,6 +46,9 @@ export interface ModelPrice {
 export const MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
   'claude-haiku-4-5': { inputPerMTok: 1, outputPerMTok: 5, cacheReadPerMTok: 0.1 },
   'claude-opus-5': { inputPerMTok: 5, outputPerMTok: 25, cacheReadPerMTok: 0.5 },
+  // Image input bills at the text rate, and thinking tokens bill as output — which is why
+  // `GeminiProvider` reports thoughts inside `outputTokens` rather than dropping them.
+  'gemini-2.5-flash': { inputPerMTok: 0.3, outputPerMTok: 2.5, cacheReadPerMTok: 0.03 },
 };
 
 /** Strips a trailing `-YYYYMMDD` so a pinned snapshot prices as its base model. */

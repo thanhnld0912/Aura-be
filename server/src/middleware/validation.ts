@@ -27,7 +27,8 @@ function toDetails(issues: ZodIssue[]): ErrorDetail[] {
   }));
 }
 
-function toValidationError(error: z.ZodError, part: string): ValidationError {
+/** Exported for the multipart route, which validates its text fields by hand. */
+export function toValidationError(error: z.ZodError, part: string): ValidationError {
   const first = error.issues[0];
   const where = part === 'body' ? '' : ` (${part})`;
   const message = first

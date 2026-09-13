@@ -30,9 +30,12 @@ import { AiService } from '../ai/ai.service.js';
 import { AiRunsRepository } from '../ai/ai-runs.repository.js';
 import { estimateCost } from '../ai/pricing.js';
 import { ClaudeProvider } from '../ai/providers/claude-provider.js';
+import { GeminiProvider } from '../ai/providers/gemini-provider.js';
 import { FoodRepository } from '../nutrition/food-repository.js';
 import { FoodResolver } from '../nutrition/food-resolver.js';
 import { ClaudeMealParser } from '../nutrition/parser/claude-meal-parser.js';
+import { GeminiVisionMealParser } from '../nutrition/parser/gemini-vision-meal-parser.js';
+import type { ImageMealParser } from '../nutrition/parser/image-meal-parser.js';
 import type { MealParser } from '../nutrition/parser/meal-parser.js';
 import { RuleBasedMealParser } from '../nutrition/parser/rule-based-parser.js';
 import { LocalFoodProvider } from '../nutrition/providers/local-food-provider.js';
@@ -68,6 +71,8 @@ export interface RouteDependencies {
    * rather than the network — the same seam, and the same reason, as `supabaseAuth`.
    */
   mealParser?: MealParser;
+  /** Injected by tests so the vision path runs over a scripted provider. */
+  imageMealParser?: ImageMealParser;
 }
 
 /**
@@ -94,6 +99,30 @@ export function createMealParser(env: Env, db: Database['db']): MealParser {
     }),
     model: env.AI_MODEL_EXTRACTION,
     fallback: ruleBased,
+  });
+}
+
+/**
+ * Which reader, if any, looks at a meal photo (AI_ARCHITECTURE.md §2).
+ *
+ * `undefined` without a Gemini key, on purpose. Unlike text, a photo has no deterministic
+ * reading to fall back on, so the honest answer from an unconfigured server is `503` — and
+ * the route is registered either way, which keeps the OpenAPI document identical whatever
+ * keys a given machine happens to hold.
+ *
+ * Its own `AiService`, as `createMealParser` builds one: each is a single provider over
+ * the same ledger and price table, and nothing is gained by coupling their lifetimes.
+ */
+export function createImageMealParser(env: Env, db: Database['db']): ImageMealParser | undefined {
+  if (!env.GEMINI_API_KEY) return undefined;
+
+  return new GeminiVisionMealParser({
+    ai: new AiService({
+      providers: [new GeminiProvider({ apiKey: env.GEMINI_API_KEY })],
+      runs: new AiRunsRepository(db),
+      estimateCost,
+    }),
+    model: env.AI_MODEL_VISION,
   });
 }
 
@@ -159,6 +188,7 @@ export async function registerRoutes(
     events: eventsService,
     getDayRefresher: () => dayRefresher,
     parser: options.mealParser ?? createMealParser(env, db),
+    imageParser: options.imageMealParser ?? createImageMealParser(env, db),
   });
 
   const jwtVerifier = createJwtVerifier({
@@ -185,7 +215,12 @@ export async function registerRoutes(
   await app.register(dailyPlansRoutes, { prefix: '/daily-plan', plansService });
   await app.register(dailyEventsRoutes, { prefix: '/events', eventsService });
   await app.register(checkinsRoutes, { prefix: '/checkins', checkinsService });
-  await app.register(mealsRoutes, { prefix: '/meals', mealsService, usersService });
+  await app.register(mealsRoutes, {
+    prefix: '/meals',
+    mealsService,
+    usersService,
+    maxUploadBytes: env.MAX_UPLOAD_BYTES,
+  });
   await app.register(nutritionRoutes, {
     prefix: '/nutrition',
     providers,

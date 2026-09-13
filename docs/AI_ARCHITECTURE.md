@@ -74,7 +74,7 @@ server/src/agent/                   # AURA's reasoning — uses ai/, knows the d
 The split exists so that swapping Claude for another model touches `ai/`, while changing what
 AURA *reasons about* touches `agent/`. `agent/` is where the product lives; `ai/` is plumbing.
 
-### As built (Phase 4, Tasks 2–3)
+### As built (Phase 4, Tasks 2–6)
 
 The layout above is the destination. What exists today is smaller, and the names differ:
 
@@ -83,7 +83,9 @@ server/src/ai/
 ├── providers/
 │   ├── ai-provider.ts              # one interface: AiProvider
 │   ├── fake-provider.ts            # scripted outcomes; the suite needs no API key
-│   └── claude-provider.ts          # @anthropic-ai/sdk — the ONLY file importing it
+│   ├── claude-provider.ts          # @anthropic-ai/sdk — the ONLY file importing it
+│   └── gemini-provider.ts          # @google/genai — the ONLY file importing it
+├── safety/                         # input/output gates, causal filter (§6)
 ├── ai-runs.repository.ts           # append-only ledger writer
 ├── pricing.ts                      # model → published price; unknown model → null
 ├── types.ts                        # AiRequest / AiCompletion / AiProviderFailure
@@ -162,6 +164,66 @@ An empty reading is *not* a fallback case. If Claude reports no food, that is an
 `ParseContext.userId` was added to `MealParser` for one reason: `ai_runs.user_id` is `NOT NULL`
 under RLS, so a model-backed parser has to know the authenticated caller. It comes from the
 verified token via `MealsService`, never from the meal text.
+
+### The second caller: meal photos (Task 6)
+
+```
+POST /api/meals/analyze-image   multipart: image (required) · mealType? · description?
+  → auth preHandler — before a byte of the body is read
+  → ai-vision bucket (20/day)
+  → lib/images.ts: size · declared type · magic bytes · declared-dimension guard
+                   · re-encode to WebP · all metadata, GPS included, stripped
+  → MealsService.analyzeImageToDraft
+  → GeminiVisionMealParser  (parser: "gemini-vision-v1")
+  → AiService → GeminiProvider → Gemini   (AI_MODEL_VISION, default gemini-2.5-flash)
+  → ParsedMeal → foodResolver → nutrition → draft
+```
+
+**Responsibility.** Vision estimates food identity and visual portion information; it does
+not provide authoritative nutrition values or exact measurements. A single image cannot
+reliably determine exact food weight in all cases, and the contract is built so the model
+cannot pretend otherwise:
+
+| Enforcement | Where |
+|---|---|
+| No `g` or `ml` unit — an exact weight is inexpressible | `meal-vision.ts`, `VISION_UNITS` |
+| `quantity: null` is valid — "the photo doesn't show how much" is an answer | same schema |
+| An uncounted item becomes 1 of its unit, confidence capped at 0.6 | `gemini-vision-meal-parser.ts` |
+| `.strict()` — a volunteered `kcal` fails validation and is recorded as `schema_error` | same schema |
+| Every number comes from the food database | the existing resolver and calculator |
+| Nothing reaches the day until the user confirms | draft only: no event, no summary |
+
+**Input and output.** The response is exactly the `/parse` shape — `{ meal, ambiguous, parser }`
+— so a client treats both the same way. The image is never stored: `meals.image_key` stays null,
+the upload buffer is dropped after re-encoding, and no image byte enters `ai_runs`, because
+`record()` reads `meta` and never `AiRunRequest.image`.
+
+**Prompt injection.** Two untrusted text channels. The optional description is fenced in
+`<meal_description>` and screened with `screenInput(…, 'meal_vision')`; a refused description is
+dropped and the photo is still read. Text visible *in the photo* is defined by the system prompt
+as content, never instruction. Model-authored `name` and `ambiguous` pass through
+`safeDisplayText`, exactly as on the text path.
+
+**No fallback.** A sentence has a deterministic reading; a photo does not. A Gemini failure is the
+`AppError` `AiService` chose — `422 AI_SCHEMA_ERROR`, `502 PROVIDER_ERROR` or
+`503 PROVIDER_UNAVAILABLE` — never a text parse of the caption presented as the photo's contents.
+Without `GEMINI_API_KEY` the route still exists, so the OpenAPI document does not depend on which
+keys a machine holds, and it answers `503`.
+
+**The provider.** `GeminiProvider` owns `@google/genai` and nothing else:
+
+- `retryOptions` is never set. Verified in the installed SDK that it then makes one `fetch` per
+  call; the tests count the fetches.
+- Cancellation is the service's own `AbortSignal`, passed as `config.abortSignal` — no second
+  timer. Tests assert the signal `fetch` receives is really aborted.
+- Structured output uses `responseJsonSchema`, narrowed to the keywords Google documents
+  (`minLength`/`maxLength` are dropped; Zod still enforces them on the way back).
+- No thinking configuration: the controls differ between Gemini generations.
+- Usage: `promptTokenCount` includes cached tokens, so input = prompt − cached, and cache reads are
+  reported separately; output = candidates + thoughts, because Google bills thinking as output.
+- A blocked prompt, or a safety finish reason, is `refused`, keeping only the enum label.
+
+**Timeout.** 25 s per attempt (`API_DESIGN.md`); with the one retry, a worst case of about 51 s.
 
 ---
 
@@ -498,12 +560,14 @@ Pricing per million tokens (Anthropic first-party, re-verified 2026-09-10 agains
 | `claude-opus-5` | $5.00 | $25.00 |
 | `claude-sonnet-5` | $2.00 | $10.00 |
 | `claude-haiku-4-5` | $1.00 | $5.00 |
-| `gemini-2.5-flash` | ~$0.30 | ~$2.50 |
+| `gemini-2.5-flash` | $0.30 | $2.50 |
 
 The executable copy of this table is `src/ai/pricing.ts`, and it is deliberately shorter: only
-`claude-haiku-4-5` and `claude-opus-5`, the two models `env.ts` is configured to call. A model
-that is not in it prices as `null`, never as an approximation — including the Gemini row above,
-whose `~` figures are planning estimates and not something to bill against. Rows get added when
+the three models `env.ts` is configured to call — `claude-haiku-4-5`, `claude-opus-5` and
+`gemini-2.5-flash`. The Gemini row was verified on 2026-09-13 against
+[ai.google.dev/gemini-api/docs/pricing](https://ai.google.dev/gemini-api/docs/pricing), Standard
+tier: $0.30 input (images at the text rate), $2.50 output including thinking, $0.03 cache read.
+A model that is not in the table prices as `null`, never as an approximation. Rows get added when
 a model is actually wired up.
 
 ### Per-call estimates
@@ -564,7 +628,7 @@ an estimate. Cost per active user is a tracked metric from Phase 4 onward.
 | Provider timeout | Retry once with backoff; then `502 PROVIDER_ERROR` |
 | Schema validation fails | Retry once including the validation error; then `422` |
 | `stop_reason: "refusal"` | Server-side fallback; if the chain refuses, a templated safe response |
-| Vision unavailable | Photo mode degrades to "describe it instead" with the image still saved |
+| Vision unavailable | Photo mode answers `503 PROVIDER_UNAVAILABLE`. There is no server-side text fallback and nothing is saved; describing the meal instead goes through `/meals/parse` |
 | Claude unavailable | Insights show the last cached value marked `stale: true` |
 | All providers down | App remains **fully usable** — logging, history, plans and nutrition never depend on AI |
 
