@@ -22,6 +22,14 @@ import { DailyPlansRepository } from '../modules/daily-plans/daily-plans.reposit
 import { dailyPlansRoutes } from '../modules/daily-plans/daily-plans.routes.js';
 import { DailyPlansService } from '../modules/daily-plans/daily-plans.service.js';
 import { healthRoutes } from '../modules/health/health.routes.js';
+import { InsightsRepository } from '../modules/insights/insights.repository.js';
+import { insightsRoutes } from '../modules/insights/insights.routes.js';
+import { InsightsService } from '../modules/insights/insights.service.js';
+import { NO_PATTERN_ENGINE, type PatternEvidenceSource } from '../insights/pattern-evidence.js';
+import {
+  ClaudeWeeklyStoryGenerator,
+  type WeeklyStoryGenerator,
+} from '../insights/weekly-story-generator.js';
 import { MealsRepository } from '../modules/meals/meals.repository.js';
 import { mealsRoutes } from '../modules/meals/meals.routes.js';
 import { MealsService } from '../modules/meals/meals.service.js';
@@ -73,6 +81,13 @@ export interface RouteDependencies {
   mealParser?: MealParser;
   /** Injected by tests so the vision path runs over a scripted provider. */
   imageMealParser?: ImageMealParser;
+  /** Injected by tests so the weekly story runs over a scripted provider. */
+  weeklyStoryGenerator?: WeeklyStoryGenerator;
+  /**
+   * Injected by tests to stand in for the Pattern Engine, which does not exist yet
+   * (Phase 5). Production uses `NO_PATTERN_ENGINE`, which reports it as unavailable.
+   */
+  patternEvidence?: PatternEvidenceSource;
 }
 
 /**
@@ -123,6 +138,30 @@ export function createImageMealParser(env: Env, db: Database['db']): ImageMealPa
       estimateCost,
     }),
     model: env.AI_MODEL_VISION,
+  });
+}
+
+/**
+ * Who, if anyone, writes the weekly story (AI_ARCHITECTURE.md §1).
+ *
+ * The reasoning model, not the extraction one: narrating a person's behaviour without
+ * overclaiming is exactly the judgement §1 reserves it for. `undefined` without an
+ * Anthropic key — the story then answers `503`, the deterministic report is unaffected,
+ * and there is no templated narrative standing in for one no model wrote.
+ */
+export function createWeeklyStoryGenerator(
+  env: Env,
+  db: Database['db'],
+): WeeklyStoryGenerator | undefined {
+  if (!env.ANTHROPIC_API_KEY) return undefined;
+
+  return new ClaudeWeeklyStoryGenerator({
+    ai: new AiService({
+      providers: [new ClaudeProvider({ apiKey: env.ANTHROPIC_API_KEY })],
+      runs: new AiRunsRepository(db),
+      estimateCost,
+    }),
+    model: env.AI_MODEL_REASONING,
   });
 }
 
@@ -191,6 +230,15 @@ export async function registerRoutes(
     imageParser: options.imageMealParser ?? createImageMealParser(env, db),
   });
 
+  const insightsService = new InsightsService({
+    repository: new InsightsRepository(db),
+    meals: mealsRepository,
+    checkins: checkinsRepository,
+    users: usersService,
+    patterns: options.patternEvidence ?? NO_PATTERN_ENGINE,
+    storyGenerator: options.weeklyStoryGenerator ?? createWeeklyStoryGenerator(env, db),
+  });
+
   const jwtVerifier = createJwtVerifier({
     // Supabase issues tokens under `<project>/auth/v1`.
     issuer: new URL('/auth/v1', env.SUPABASE_URL).toString(),
@@ -229,9 +277,10 @@ export async function registerRoutes(
     mealsRepository,
     usersService,
   });
+  await app.register(insightsRoutes, { prefix: '/insights', insightsService });
 
   /**
-   * Still to come, with their phases: `meals` and `nutrition` in Phase 3, `agent` in
-   * Phase 4, `patterns` and `insights` in Phase 5, `groups` in Phase 8.
+   * Still to come, with their phases: `agent` in Phase 4, `patterns` in Phase 5,
+   * `groups` in Phase 8.
    */
 }

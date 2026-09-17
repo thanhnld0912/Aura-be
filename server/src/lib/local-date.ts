@@ -115,3 +115,28 @@ export function addLocalDays(localDate: LocalDate, days: number): LocalDate {
     shifted.getUTCDate(),
   ).padStart(2, '0')}`;
 }
+
+/**
+ * ISO weekday of a calendar date: 1 is Monday, 7 is Sunday.
+ *
+ * Read in UTC on purpose, and correctly so: the argument is already a *local* calendar
+ * date, so this is calendar arithmetic with no instant involved — exactly like
+ * `addLocalDays`. Reading the weekday of `new Date()` in the server's zone would be the
+ * bug; reading the weekday of a date that is already local is not.
+ */
+export function dayOfWeek(localDate: LocalDate): number {
+  const [year, month, day] = localDate.split('-').map(Number) as [number, number, number];
+  const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  return weekday === 0 ? 7 : weekday;
+}
+
+/**
+ * The Monday that starts the week containing a local date.
+ *
+ * AURA's week runs Monday to Sunday — `weekly_summaries.week_start` is a Monday in
+ * DATABASE_DESIGN.md — and in the user's own calendar, so "this week" flips at local
+ * midnight between Sunday and Monday rather than at a UTC boundary.
+ */
+export function startOfLocalWeek(localDate: LocalDate): LocalDate {
+  return addLocalDays(localDate, 1 - dayOfWeek(localDate));
+}

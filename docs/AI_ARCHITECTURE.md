@@ -74,7 +74,7 @@ server/src/agent/                   # AURA's reasoning — uses ai/, knows the d
 The split exists so that swapping Claude for another model touches `ai/`, while changing what
 AURA *reasons about* touches `agent/`. `agent/` is where the product lives; `ai/` is plumbing.
 
-### As built (Phase 4, Tasks 2–6)
+### As built (Phase 4, Tasks 2–7)
 
 The layout above is the destination. What exists today is smaller, and the names differ:
 
@@ -224,6 +224,104 @@ keys a machine holds, and it answers `503`.
 - A blocked prompt, or a safety finish reason, is `refused`, keeping only the enum label.
 
 **Timeout.** 25 s per attempt (`API_DESIGN.md`); with the one retry, a worst case of about 51 s.
+
+### The third caller: the weekly story (Task 7)
+
+The first caller that writes prose. Everything numeric is computed before Claude is involved,
+and Claude's output is checked against those numbers rather than trusted to respect them.
+
+```
+GET  /api/insights/weekly        InsightsRepository (grouped SQL) → buildWeeklyReport → report
+                                 no model call, ever
+
+POST /api/insights/weekly/story  report → buildWeeklyEvidence → ClaudeWeeklyStoryGenerator
+                                 → AiService (purpose weekly, AI_MODEL_REASONING) → ClaudeProvider
+                                 → Zod shape + evidence refinement → toWeeklyStory
+                                 → { status, report, story }
+```
+
+```
+server/src/insights/                 # library: no HTTP, no auth
+├── weekly-report.ts                 # pure aggregation: coverage, sections, comparison, limitations
+├── pattern-evidence.ts              # the Pattern Engine contract, consumed — not an engine
+├── weekly-story.ts                  # evidence, prompt, schema, grounding checks, mapping
+└── weekly-story-generator.ts        # the AiService call
+server/src/modules/insights/         # repository, service, schema, routes
+server/src/ai/safety/narrative-framing.ts
+```
+
+| | Backend | Claude |
+|---|---|---|
+| Counts, rates, averages, week-on-week deltas | ✅ `weekly-report.ts`, pure and tested | ❌ copies figures, never calculates |
+| Pattern statistics and their thresholds | Pattern Engine (Phase 5), through `PatternEvidenceSource` | ❌ |
+| A pattern's caveat | the engine's text, attached verbatim | ❌ never paraphrased |
+| Choosing, ordering and phrasing claims | | ✅ |
+| Suggestions | | ✅ routines only, each citing evidence |
+
+**The week.** Monday to Sunday in `users.timezone` (`startOfLocalWeek`), aggregated by the stored
+`local_date` — so Sunday 23:59 and Monday 00:00 local land in different weeks even though they
+share a UTC day. Days after today are *not elapsed*, not missing. `weekStart` must be a real
+Monday no later than the current week.
+
+**Missing is not zero.** Every section separates *coverage* (how many days had a log of this kind
+— a real count, and 0 is true) from *behaviour* (meals, rates, averages — `null` with no data,
+never 0). A section with nothing logged is `no_data` and contributes a limitation code
+(`no_meal_logs`, …) instead of a figure, so the narrator never holds a "0 meals" it could repeat.
+Averages are over days with logs, never over seven. A plan item still `pending` on a closed day
+counts as `not_logged` — what `reconcile()` returns once `dayClosed` is true, applied here because
+reconciliation only reruns on a write.
+
+**Previous week.** Rates only, never counts. `available` needs ≥3 tracked days (and ≥3 resolved plan
+items or habit logs, for those rates) on *both* sides; below that `insufficient_data`; a previous
+week with no logs at all is `unavailable`. A change under 10 points is `flat` — presentation, not
+statistics.
+
+**Patterns.** The engine does not exist. `NO_PATTERN_ENGINE` returns `null`, which the report shows
+as `patterns.status = "unavailable"` plus a limitation — different from `"none"`, an engine that
+found nothing. The consumer validates, keeps `active` only, ranks by the engine's own score and
+caps at three. It deliberately does **not** re-check `n ≥ 10`, `|r| ≥ 0.45` and the rest: those
+are the engine's gates, and a second copy would be a second place for them to drift.
+
+**What Claude receives.** Numbered English statements — `F` facts, `C` comparisons, `P` patterns,
+`L` limitations — in a fenced `<weekly_evidence>` block, plus the reader's language and goal focus.
+No ids, no dates, no check-in notes, no meal names, no titles. The system prompt contains no data.
+
+**How "do not invent" is enforced.** Every statement in the response carries `evidenceRefs`, and a
+refinement bound to *this request's* evidence checks, inside the Zod schema:
+
+| Check | Fails when |
+|---|---|
+| Refs | a ref does not exist, or is the wrong kind for its section (a highlight citing a limitation) |
+| Numbers | a digit — or `two`…`twelve`, `bốn`/`sáu`/`bảy`/`tám`/`mười` — is not in the evidence *that statement cites*; the headline may carry none |
+| Patterns | a `patternRef` was not supplied, or repeats |
+| Interpretations | nothing under it is a pattern or a comparison |
+| Causation | `filterCausalClaims` rejects it; a rewritable claim passes and ships rewritten |
+| Framing | `containsProhibitedFraming`: weight, body shape, calorie restriction, diagnosis, supplements |
+| Safety | `safeDisplayText(…, 'weekly')` drops it, or it holds markup, a link, a uuid or a key-shaped string |
+
+Because these run inside the schema, a violation is an ordinary `schema_error`: recorded by path,
+retried once, then `422 AI_SCHEMA_ERROR`. Nothing partial is returned or stored.
+
+What this does **not** catch, stated so nobody relies on it: a number that *is* in the cited
+evidence attached to the wrong noun ("5 workouts" citing "4 of 5 plan items"); Vietnamese number
+words that are also ordinary words (`một`, `hai`, `ba`, `năm`, `chín`); and an invented event
+described without any number. Those are held by the prompt and by the refs, not by a check.
+
+**Structured output.** `weeklyStoryJsonSchema` keeps only the keywords Anthropic structured
+outputs accept — no `minLength`, `maxItems`, `pattern` or ranges. Zod still enforces all of them on
+the response.
+
+**When no call is made.** `ai_insights_enabled = false` → `status: "disabled"`. Fewer than 3 tracked
+days → `status: "insufficient_data"`. No `ANTHROPIC_API_KEY` → `503`, with the report still served
+by `GET`. Evidence that trips the input gate → a `blocked` ledger row and `502`. There is no
+templated fallback story.
+
+**Model and limits.** `AI_MODEL_REASONING`; 60 s per attempt (about two minutes worst case with the
+retry); `maxTokens` 3,000; `ai-heavy`, 3 per day. `ai_runs.request_meta` is `promptVersion`
+(`weekly-story-v1`) and `inputChars` only.
+
+**Not persisted.** There is no `weekly_summaries` table, and a generated story is not stored in an
+improvised JSON column. Each `POST` is a new call; the rate limit is what bounds the cost.
 
 ---
 
@@ -500,16 +598,18 @@ cost more than the risk.
 
 Prompt-level, and honestly so: the extraction prompt forbids diagnosis, dietary advice
 and health judgements, and the extraction schema has no field in which advice could be
-returned. There is **no medical classifier**, because there is no prose surface to apply
-one to — `/meals/parse` returns structured data only. When a conversational surface
-exists, its policy is Task 8's.
+returned. There is **no medical classifier**. `/meals/parse` returns structured data only;
+the weekly story (Task 7) is prose, and there the prompt forbids medical, weight and
+restriction advice while `containsProhibitedFraming` refuses a response that uses such
+framing anyway. That is an output list for generated narrative, not a classifier of what
+people say. When a conversational surface exists, its policy is Task 8's.
 
-### Causal filtering — infrastructure, not yet wired
+### Causal filtering — first caller: the weekly story
 
-`filterCausalClaims(text)` is pure, deterministic, dependency-free, and **has no caller**.
-Nothing in AURA generates prose today. It exists so that daily analysis, weekly analysis,
-pattern narration and agent replies inherit the rule rather than each reinventing it;
-actual consumption belongs to Phase 5 and Task 8.
+`filterCausalClaims(text)` is pure, deterministic and dependency-free. Its first caller is
+the weekly story (Task 7): a claim it rejects fails the response schema, and a claim it can
+rewrite ships rewritten. Daily analysis, pattern narration and agent replies should reuse it
+the same way rather than reinvent it.
 
 *"X caused Y"* → *"X often occurred alongside Y"*. The association wording is invariant
 to subject number and tense, which is what makes a deterministic rewrite grammatical.
@@ -544,9 +644,9 @@ the logs.
 | Described before | Status |
 |---|---|
 | `safetyFlag` on the API response | Not built. It would change the frozen `/meals/parse` contract; it belongs to the agent response shape. |
-| `PatternNarrationSchema`, `isEstimate`, `caveat` | Not built. Phase 5, with pattern narration. |
+| `PatternNarrationSchema`, `isEstimate` | Not built. Phase 5, with pattern narration. A pattern's `caveat` is required by the evidence contract the weekly story consumes (Task 7). |
 | Input crisis classifier | Deferred to Task 8, on purpose (above). |
-| Output blocklist on dieting/appearance language | Not built. No prose surface to filter. |
+| Output blocklist on dieting/appearance language | Built for generated narrative only: `narrative-framing.ts`, used by the weekly story (Task 7). |
 
 ---
 
@@ -610,6 +710,9 @@ output carries the highest correctness risk in the product.
 2. **Daily analysis is capped** at 1/day, runs after 20:00, and is skipped entirely when the
    day has fewer than 2 events — no manufactured insight from one data point.
 3. **Weekly analysis is one scheduled job**, cached in `weekly_summaries`.
+   *As built (Task 7):* not yet. There is no scheduler and no `weekly_summaries` table. The
+   weekly *report* is deterministic and free on read; the *story* is generated only on an
+   explicit `POST`, is not cached, and is bounded by the `ai-heavy` limit (3/day).
 4. **Pattern narration runs only when a pattern newly crosses threshold**, not on every
    recompute. Statistics recompute nightly and cost nothing.
 5. **Meal drafts are reused.** Re-opening an unconfirmed draft does not re-run vision.
@@ -629,7 +732,7 @@ an estimate. Cost per active user is a tracked metric from Phase 4 onward.
 | Schema validation fails | Retry once including the validation error; then `422` |
 | `stop_reason: "refusal"` | Server-side fallback; if the chain refuses, a templated safe response |
 | Vision unavailable | Photo mode answers `503 PROVIDER_UNAVAILABLE`. There is no server-side text fallback and nothing is saved; describing the meal instead goes through `/meals/parse` |
-| Claude unavailable | Insights show the last cached value marked `stale: true` |
+| Claude unavailable | Designed: insights show the last cached value marked `stale: true`. As built (Task 7), nothing is cached: `POST /insights/weekly/story` answers `503`/`502`/`422` and `GET /insights/weekly` keeps serving the deterministic report. No templated story is substituted |
 | All providers down | App remains **fully usable** — logging, history, plans and nutrition never depend on AI |
 
 That last row is the design goal: **AI is additive.** A user with no AI availability can still

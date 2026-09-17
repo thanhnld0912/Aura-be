@@ -21,7 +21,8 @@
     "db:migrate:dist": "node dist/database/migrate.js",
     "openapi:emit": "tsx scripts/emit-openapi.ts",
     "check:contract": "npm run openapi:emit && node scripts/check-contract-drift.mjs",
-    "smoke:vision": "tsx scripts/smoke-gemini-vision.ts"
+    "smoke:vision": "tsx scripts/smoke-gemini-vision.ts",
+    "smoke:weekly": "tsx scripts/smoke-weekly-story.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",

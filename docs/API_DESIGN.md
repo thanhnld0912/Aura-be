@@ -521,6 +521,33 @@ Upsert per day. `201`/`200`.
 manufacturing an observation from one data point.
 
 ### `GET /api/insights/weekly?weekStart=`
+
+> **As built (Phase 4, Task 7)** — a different shape from the design below, which is kept for
+> the Phase 5/7 work it describes. There is no `weekly_summaries` table and no `reels` yet.
+>
+> **`GET /api/insights/weekly?weekStart=YYYY-MM-DD`** — the deterministic weekly report. Never
+> calls a model. `weekStart` must be a real Monday, no later than the current week, in the
+> user's timezone; omitted means the current week. Returns `period` (with `daysElapsed` and
+> `isComplete`), `coverage`, seven `days`, `nutrition`, `activity`, `plan`, `habits`,
+> `checkins`, `sleep`, `comparison` (previous week, rates only, each metric `available` |
+> `insufficient_data` | `unavailable`), `patterns` (`unavailable` until the Pattern Engine
+> exists) and `dataQuality.limitations`. Every section is `ok` or `no_data`; with no data its
+> behaviour figures are `null`, never `0`. Confirmed meals only — drafts are excluded. No
+> calorie figures: those are `GET /api/nutrition/weekly`, which honours `showCalories`.
+>
+> **`POST /api/insights/weekly/story`** `{ weekStart?: date }` — `ai-heavy` (3/day). Returns
+> `{ status, report, story }`, where `status` is `ready`, `insufficient_data` (fewer than 3
+> tracked days — no model call) or `disabled` (`aiInsightsEnabled: false` — no model call),
+> and `story` is `null` unless `ready`. A story is sectioned by kind of claim — `headline`,
+> `summary`, `highlights[]` (`type: fact | comparison`), `patterns[]` (engine `caveat`
+> verbatim), `interpretations[]`, `suggestions[]`, `caveats[]` — and every statement carries
+> `evidence`: deterministic source ids such as `metric:plan.adherence`,
+> `comparison:logging_coverage`, `pattern:<id>` or `limitation:no_meal_logs`. Errors:
+> `400`, `401`, `422 AI_SCHEMA_ERROR` (the response failed the schema or its evidence checks
+> twice), `429`, `502 PROVIDER_ERROR`, `503 PROVIDER_UNAVAILABLE` (provider outage, or no
+> Anthropic key). Nothing is persisted except the `ai_runs` rows. `POST /api/agent/analyze-week`
+> (§15) is not built.
+
 Serves `InsightsView` reels (audit item 11), read from `weekly_summaries`.
 
 ```json

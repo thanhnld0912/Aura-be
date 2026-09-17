@@ -19,3 +19,4 @@ export {
 export { screenInput } from './input-safety.js';
 export { safeDisplayText, sanitizeDisplayText, screenOutputText } from './output-safety.js';
 export { containsCausalClaim, filterCausalClaims, type CausalFilterResult } from './causal-filter.js';
+export { containsProhibitedFraming } from './narrative-framing.js';

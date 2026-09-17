@@ -1,6 +1,8 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { Env } from './config/env.js';
 import type { Database } from './database/client.js';
+import type { PatternEvidenceSource } from './insights/pattern-evidence.js';
+import type { WeeklyStoryGenerator } from './insights/weekly-story-generator.js';
 import { loggerOptions } from './lib/logger.js';
 import type { SupabaseAuthClient } from './modules/auth/supabase-auth-client.js';
 import type { ImageMealParser } from './nutrition/parser/image-meal-parser.js';
@@ -24,6 +26,10 @@ export interface BuildAppOptions {
   mealParser?: MealParser;
   /** Injected by tests so the Gemini vision parser can run over a scripted provider. */
   imageMealParser?: ImageMealParser;
+  /** Injected by tests so the weekly story can run over a scripted provider. */
+  weeklyStoryGenerator?: WeeklyStoryGenerator;
+  /** Injected by tests in place of the Pattern Engine, which is Phase 5. */
+  patternEvidence?: PatternEvidenceSource;
 }
 
 /**
@@ -69,6 +75,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     ...(options.supabaseAuth ? { supabaseAuth: options.supabaseAuth } : {}),
     ...(options.mealParser ? { mealParser: options.mealParser } : {}),
     ...(options.imageMealParser ? { imageMealParser: options.imageMealParser } : {}),
+    ...(options.weeklyStoryGenerator ? { weeklyStoryGenerator: options.weeklyStoryGenerator } : {}),
+    ...(options.patternEvidence ? { patternEvidence: options.patternEvidence } : {}),
   });
 
   return app;
