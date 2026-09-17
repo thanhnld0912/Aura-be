@@ -1,6 +1,6 @@
 import type { AiPurpose } from '../types.js';
-import { screenInput } from './input-safety.js';
-import { ALLOW, type SafetyDecision } from './safety-types.js';
+import { screenCategories } from './input-safety.js';
+import { ALLOW, outputCategories, type SafetyDecision } from './safety-types.js';
 
 /**
  * The gate behind the model, for the text a model authored.
@@ -72,12 +72,12 @@ export function sanitizeDisplayText(text: string): string | null {
  * the input gate normally catches this first — and it covers the case where a model
  * echoes an instruction back into a field that gets stored.
  *
- * Not a prose-safety system. There is no prose-generating surface in AURA yet; when
- * daily analysis and pattern narration arrive they will need their own policy, and
- * `filterCausalClaims` is the piece of it that already exists.
+ * The personal-disclosure categories are excluded (`outputCategories`): a reply that
+ * points someone towards help has to name what it is helping with. Prose surfaces add
+ * their own checks on top — the causal filter, framing lists and evidence grounding.
  */
 export function screenOutputText(text: string, purpose: AiPurpose): SafetyDecision {
-  return screenInput(text, purpose);
+  return screenCategories(text, outputCategories(purpose));
 }
 
 /**

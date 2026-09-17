@@ -53,3 +53,41 @@ const PROHIBITED: readonly RegExp[] = [
 export function containsProhibitedFraming(text: string): boolean {
   return PROHIBITED.some((pattern) => pattern.test(text));
 }
+
+/**
+ * Framing a *conversational* reply must never use.
+ *
+ * Narrower than `containsProhibitedFraming`, on purpose. A weekly story is never asked
+ * about weight, so any mention of it means the story left its brief. A chat reply is
+ * sometimes asked — "what is BMI?", "is intermittent fasting healthy?" — and refusing
+ * every answer that names the topic would turn honest questions into errors. So this list
+ * targets what makes a reply harmful rather than what it is about: advice to restrict,
+ * purge or compensate, extreme weight targets, doses, supplements pushed as advice, a
+ * diagnosis stated about the reader, and body labels applied to them.
+ */
+const HARMFUL: readonly RegExp[] = [
+  // ── English ────────────────────────────────────────────────────────────────
+  phrase('calorie\\s+deficit|cut(?:ting)?\\s+(?:back\\s+on\\s+)?(?:your\\s+)?calories|eat(?:ing)?\\s+(?:only|under|less\\s+than|below)\\s+\\d+\\s*(?:kcal|calories)'),
+  phrase('(?:try|start|consider|you\\s+should|you\\s+could)\\s+(?:intermittent\\s+)?fasting|(?:try|you\\s+(?:should|could|can))\\s+skip(?:ping)?\\s+(?:a\\s+|your\\s+)?meals?'),
+  phrase('burn\\s+off\\s+(?:what|everything)|earn\\s+(?:your|the)\\s+(?:food|meals?|dinner)|punish(?:ing)?\\s+yourself|make\\s+up\\s+for\\s+(?:eating|what\\s+you\\s+ate)'),
+  phrase('laxatives?|diet\\s+pills?|appetite\\s+suppressants?|purg(?:e|ing)|make\\s+yourself\\s+(?:throw\\s+up|vomit)'),
+  phrase('lose\\s+\\d+\\s*(?:kg|kilos?|pounds|lbs)'),
+  phrase('\\d+\\s*mg|(?:take|try|consider|buy)\\s+(?:a\\s+|some\\s+)?supplements?'),
+  phrase('you\\s+(?:have|may\\s+have|might\\s+have|probably\\s+have)\\s+(?:an?\\s+)?(?:\\S+\\s+)?(?:disorder|disease|deficiency|illness)'),
+  phrase("you(?:'re|\\s+are)\\s+(?:too\\s+|a\\s+bit\\s+)?(?:fat|overweight|obese|skinny|too\\s+thin)"),
+
+  // ── Vietnamese ─────────────────────────────────────────────────────────────
+  phrase('thâm\\s+hụt\\s+calo|cắt\\s+giảm\\s+calo|ăn\\s+(?:dưới|ít\\s+hơn)\\s+\\d+\\s*(?:calo|kcal)'),
+  phrase('(?:hãy|nên|thử)\\s+(?:nhịn\\s+ăn|bỏ\\s+bữa|ăn\\s+ít\\s+lại)'),
+  phrase('tập\\s+bù|đốt\\s+(?:bù|hết)\\s+(?:năng\\s+lượng|calo)|(?:trừng\\s+)?phạt\\s+bản\\s+thân'),
+  phrase('thuốc\\s+(?:giảm\\s+cân|xổ|nhuận\\s+tràng)|móc\\s+họng|gây\\s+nôn'),
+  phrase('giảm\\s+\\d+\\s*(?:kg|ký|cân)'),
+  phrase('(?:hãy|nên|thử)\\s+(?:uống|dùng)\\s+(?:thuốc|thực\\s+phẩm\\s+chức\\s+năng)'),
+  phrase('bạn\\s+(?:bị|mắc|có\\s+thể\\s+bị|có\\s+lẽ\\s+bị)\\s+(?:bệnh|rối\\s+loạn|chứng)'),
+  phrase('bạn\\s+(?:quá\\s+|hơi\\s+)?(?:béo|mập|gầy|thừa\\s+cân|béo\\s+phì)'),
+];
+
+/** Whether a conversational reply uses harmful health, food or body framing. */
+export function containsHarmfulFraming(text: string): boolean {
+  return HARMFUL.some((pattern) => pattern.test(text));
+}

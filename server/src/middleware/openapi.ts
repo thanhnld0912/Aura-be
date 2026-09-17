@@ -127,6 +127,7 @@ const TAGS = [
   { name: 'Meals', description: 'Meal logging, parsing and confirmation.' },
   { name: 'Nutrition', description: 'Food search, deterministic calculation and totals.' },
   { name: 'Insights', description: 'Weekly facts from logged data, and the story written from them.' },
+  { name: 'Agent', description: 'Conversational assistant grounded in the user’s own records.' },
 ];
 
 /** Maps a URL prefix to the tag its operations belong to. */
@@ -140,6 +141,7 @@ const TAG_BY_PREFIX: ReadonlyArray<[string, string]> = [
   ['/api/meals', 'Meals'],
   ['/api/nutrition', 'Nutrition'],
   ['/api/insights', 'Insights'],
+  ['/api/agent', 'Agent'],
 ];
 
 function tagFor(url: string): string[] {

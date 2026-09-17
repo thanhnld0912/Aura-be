@@ -286,6 +286,39 @@ export class MealsRepository {
     return rows.map((row) => ({ ...row, localDate: String(row.localDate) }));
   }
 
+  /**
+   * Which meal types were confirmed on each local day — counts only, no food, no figures.
+   * Lets the agent answer "which days had no breakfast logged" in one grouped read
+   * instead of loading every meal of the week.
+   */
+  async mealTypesByDay(
+    userId: string,
+    from: string,
+    to: string,
+  ): Promise<Array<{ localDate: string; mealType: MealRow['mealType']; count: number }>> {
+    const rows = await this.db
+      .select({
+        localDate: dailyEvents.localDate,
+        mealType: meals.mealType,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(meals)
+      .innerJoin(dailyEvents, eq(meals.eventId, dailyEvents.id))
+      .where(
+        and(
+          eq(meals.userId, userId),
+          eq(meals.status, 'confirmed'),
+          isNull(meals.deletedAt),
+          isNull(dailyEvents.deletedAt),
+          gte(dailyEvents.localDate, from),
+          lte(dailyEvents.localDate, to),
+        ),
+      )
+      .groupBy(dailyEvents.localDate, meals.mealType);
+
+    return rows.map((row) => ({ ...row, localDate: String(row.localDate) }));
+  }
+
   /** Most-logged foods, for the quick-add surface. */
   async frequentFoods(userId: string, limit = 10): Promise<Array<{ foodId: string; uses: number }>> {
     const rows = await this.db

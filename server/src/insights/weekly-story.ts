@@ -1,10 +1,15 @@
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
+import { toStructuredOutputSchema } from '../ai/structured-output.js';
 import {
   containsProhibitedFraming,
   filterCausalClaims,
+  hasUnsafeMarkup,
+  numbersIn,
   safeDisplayText,
   sanitizeDisplayText,
+  ungroundedNumbers,
+  type EvidenceItem,
+  type EvidenceKind,
 } from '../ai/safety/index.js';
 import type { goalFocusEnum } from '../database/schema/enums.js';
 import type { ComparisonMetricKey, LimitationCode, WeeklyReport } from './weekly-report.js';
@@ -38,22 +43,7 @@ import type { ComparisonMetricKey, LimitationCode, WeeklyReport } from './weekly
 export const WEEKLY_STORY_PROMPT_VERSION = 'weekly-story-v1';
 
 export type GoalFocus = (typeof goalFocusEnum.enumValues)[number];
-export type EvidenceKind = 'fact' | 'comparison' | 'pattern' | 'limitation';
-
-/** One numbered statement the narrator may cite. */
-export interface EvidenceItem {
-  /** What Claude cites: `F1`, `C1`, `P1`, `L1`. Opaque, and never a database id. */
-  ref: string;
-  kind: EvidenceKind;
-  /** The stable identifier returned to clients, e.g. `metric:plan.adherence`. */
-  source: string;
-  /** Deterministic English text carrying the figures. The only numbers Claude may use. */
-  statement: string;
-  /** Patterns only: the engine's hedge, attached to the story verbatim. */
-  caveat?: string;
-  /** Patterns only. Kept server-side — the model is never shown an id. */
-  patternId?: string;
-}
+export type { EvidenceItem, EvidenceKind };
 
 export interface WeeklyEvidence {
   locale: 'vi' | 'en';
@@ -324,46 +314,8 @@ export const weeklyStoryOutputSchema = z
 
 export type WeeklyStoryOutput = z.infer<typeof weeklyStoryOutputSchema>;
 
-/**
- * Keywords Anthropic structured outputs accept. Length, range, pattern and item-count
- * constraints are rejected by the API, so they are removed from what is *sent* — and
- * still enforced by Zod on what comes back, which is the half that matters.
- */
-const STRUCTURED_OUTPUT_KEYWORDS = new Set([
-  'type',
-  'properties',
-  'required',
-  'additionalProperties',
-  'items',
-  'enum',
-  'const',
-  'anyOf',
-  'allOf',
-  'description',
-]);
-
-function toStructuredOutputSchema(node: unknown): unknown {
-  if (Array.isArray(node)) return node.map(toStructuredOutputSchema);
-  if (node === null || typeof node !== 'object') return node;
-
-  const result: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(node)) {
-    if (!STRUCTURED_OUTPUT_KEYWORDS.has(key)) continue;
-    if (key === 'properties' && value !== null && typeof value === 'object') {
-      // Property *names* are data here, not keywords — keep every one.
-      result[key] = Object.fromEntries(
-        Object.entries(value).map(([name, schema]) => [name, toStructuredOutputSchema(schema)]),
-      );
-      continue;
-    }
-    result[key] = toStructuredOutputSchema(value);
-  }
-  return result;
-}
-
-export const weeklyStoryJsonSchema: Record<string, unknown> = toStructuredOutputSchema(
-  zodToJsonSchema(weeklyStoryOutputSchema, { $refStrategy: 'none' }),
-) as Record<string, unknown>;
+/** Anthropic-safe keywords only; see `ai/structured-output.ts`. Zod still enforces the rest. */
+export const weeklyStoryJsonSchema: Record<string, unknown> = toStructuredOutputSchema(weeklyStoryOutputSchema);
 
 // ── Validation against the evidence ──────────────────────────────────────────
 
@@ -379,48 +331,9 @@ type IssueCode =
   | 'duplicate_pattern'
   | 'unsupported_interpretation';
 
-/**
- * Output that has no business in a story, whatever the evidence: markup, links, ids and
- * anything shaped like a credential. `safeDisplayText` covers control characters and
- * instruction-shaped text; these cover what a rendered card could be tricked into showing.
- */
-const UNSAFE_OUTPUT: readonly RegExp[] = [
-  /<\/?[a-z][^>]*>/i,
-  /\b(?:https?:\/\/|www\.)\S/i,
-  /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i,
-  /\bsk-[a-z0-9_-]{12,}|\bAIza[0-9a-z_-]{20,}/i,
-];
-
-/** Weekday names that contain a digit or a number word: "thứ 2", "thứ Hai", "T7". */
-const WEEKDAY = /(?<![\p{L}\p{N}])(?:thứ\s*(?:[2-7]|hai|ba|tư|năm|sáu|bảy)|T[2-7])(?![\p{L}\p{N}])/giu;
-
-/**
- * Spelled-out numbers the check can read without guessing. English "one" is left out
- * ("one of the days"), as are Vietnamese "một", "hai", "ba", "năm" and "chín", each of
- * which is also an ordinary word ("một tuần", "cả hai", "ba mẹ", "năm nay", "chín" as
- * cooked). The digit rule in the prompt is the main defence; this closes the easy bypass.
- */
-const SPELLED_NUMBERS: ReadonlyArray<[RegExp, number]> = [
-  ...(['two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'] as const).map(
-    (word, index): [RegExp, number] => [new RegExp(`\\b${word}\\b`, 'gi'), index + 2],
-  ),
-  ...([['bốn', 4], ['sáu', 6], ['bảy', 7], ['tám', 8], ['mười', 10]] as const).map(
-    ([word, value]): [RegExp, number] => [new RegExp(`(?<![\\p{L}\\p{N}])${word}(?![\\p{L}\\p{N}])`, 'giu'), value],
-  ),
-];
-
-/** Numbers in a string, as values. Signs are dropped: "-0.62" and "0.62" are the same figure. */
-export function numbersIn(text: string, options: { prose: boolean }): number[] {
-  const scanned = options.prose ? text.replace(WEEKDAY, ' ') : text;
-  const values = [...scanned.matchAll(/\d+(?:[.,]\d+)?/g)].map((match) => Number(match[0].replace(',', '.')));
-
-  if (options.prose) {
-    for (const [pattern, value] of SPELLED_NUMBERS) {
-      values.push(...Array.from(scanned.matchAll(pattern), () => value));
-    }
-  }
-  return values;
-}
+// Markup, number reading and grounding live in `ai/safety/evidence-grounding.ts`, shared
+// with the agent (Task 8). Re-exported so existing imports keep working.
+export { numbersIn };
 
 const ALLOWED_REF_KINDS = {
   summary: ['fact', 'comparison', 'pattern', 'limitation'],
@@ -468,19 +381,12 @@ export function weeklyStorySchemaFor(evidence: WeeklyEvidence) {
         issue(path, 'empty_text');
         return;
       }
-      if (safeDisplayText(cleaned, 'weekly') === null || UNSAFE_OUTPUT.some((pattern) => pattern.test(cleaned))) {
+      if (safeDisplayText(cleaned, 'weekly') === null || hasUnsafeMarkup(cleaned)) {
         issue(path, 'unsafe_text');
       }
       if (filterCausalClaims(cleaned).action === 'reject') issue(path, 'causal_claim');
       if (containsProhibitedFraming(cleaned)) issue(path, 'prohibited_framing');
-
-      const allowed = grounding.flatMap((item) =>
-        numbersIn(`${item.statement} ${item.caveat ?? ''}`, { prose: false }),
-      );
-      const ungrounded = numbersIn(cleaned, { prose: true }).some(
-        (value) => !allowed.some((candidate) => Math.abs(candidate - value) < 1e-9),
-      );
-      if (ungrounded) issue(path, 'ungrounded_number');
+      if (ungroundedNumbers(cleaned, grounding).length > 0) issue(path, 'ungrounded_number');
     };
 
     const checkStatement = (

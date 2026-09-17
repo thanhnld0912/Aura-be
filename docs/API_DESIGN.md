@@ -609,6 +609,34 @@ Sets `status='dismissed'`; excluded from detection for 60 days. Users must be ab
 
 ### `POST /api/agent/chat` — replaces the keyword matcher (audit item 14)
 
+> **As built (Phase 4, Task 8)** — narrower than the design below, which is kept for later work.
+>
+> **Request** `{ message: string(1..2000) }`, `.strict()`. `conversationId`, `userId`, `systemPrompt`,
+> `model`, `provider` and `tools` are all `400`. JSON only — no streaming.
+>
+> **Response `200`**
+> ```json
+> { "kind": "answer", "intent": "meals",
+>   "answer": { "text": "…", "evidence": ["metric:meals.confirmed_count"] },
+>   "sections": [ { "kind": "fact", "title": "…", "text": "…", "evidence": ["meal:confirmed"] } ],
+>   "suggestions": [ { "text": "…", "evidence": [] } ],
+>   "caveats": [],
+>   "usedContext": ["meals:today", "nutrition:today"],
+>   "promptVersion": "agent-chat-v1" }
+> ```
+> `kind`: `answer`; `boundary` (outside AURA's scope, or an injection attempt); `support` (the safety
+> gate stopped the message and a fixed supportive reply was returned — no model call); `disabled`
+> (`aiInsightsEnabled: false`). Section `kind` is `fact`, `interpretation` or `general`; `evidence`
+> holds deterministic source ids, never database ids. `intent` is `today`, `weekly`, `general`,
+> `patterns`, `habits`, `plan`, `meals`, `nutrition`, `activity` or `checkins`.
+>
+> Not built: `conversationId`, streaming, `suggestionPill`, `safetyFlag`, `aiRunId`, chat history,
+> `analyze-day`, `analyze-week`, `suggest-meal`. The agent is stateless.
+>
+> **Errors** `400`, `401`, `422 AI_SCHEMA_ERROR` (the reply failed its schema or evidence checks
+> twice), `429` (`ai-chat`, 30/hour), `502 PROVIDER_ERROR`, `503 PROVIDER_UNAVAILABLE` (outage, or no
+> Anthropic key).
+
 ```ts
 { message: string(1..2000), conversationId?: uuid }
 ```

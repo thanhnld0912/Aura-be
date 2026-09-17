@@ -3,6 +3,7 @@ import postgres from 'postgres';
 import { buildApp } from '../../src/app.js';
 import { createDatabase, type Database } from '../../src/database/client.js';
 import { stubSupabaseAuth, testEnv } from './app.js';
+import type { AgentReplyGenerator } from '../../src/agent/agent-generator.js';
 import type { PatternEvidenceSource } from '../../src/insights/pattern-evidence.js';
 import type { WeeklyStoryGenerator } from '../../src/insights/weekly-story-generator.js';
 import type { ImageMealParser } from '../../src/nutrition/parser/image-meal-parser.js';
@@ -44,6 +45,7 @@ export async function createDatabaseHarness(
     imageMealParser?: ImageMealParser;
     weeklyStoryGenerator?: WeeklyStoryGenerator;
     patternEvidence?: PatternEvidenceSource;
+    agentReplyGenerator?: AgentReplyGenerator;
   } = {},
 ): Promise<DatabaseHarness> {
   const url = TEST_DATABASE_URL;
@@ -60,6 +62,7 @@ export async function createDatabaseHarness(
     ...(options.imageMealParser ? { imageMealParser: options.imageMealParser } : {}),
     ...(options.weeklyStoryGenerator ? { weeklyStoryGenerator: options.weeklyStoryGenerator } : {}),
     ...(options.patternEvidence ? { patternEvidence: options.patternEvidence } : {}),
+    ...(options.agentReplyGenerator ? { agentReplyGenerator: options.agentReplyGenerator } : {}),
     logger: false,
   });
   const sql = postgres(url, { max: 4, prepare: false, onnotice: () => {} });

@@ -166,6 +166,17 @@ This is where AURA's threat model differs from an ordinary API. Full treatment i
 - **Crisis routing.** Inputs flagged for disordered-eating signals, self-harm, or acute
   medical symptoms are **not sent to the model as advice requests**. A templated supportive
   response points to a trusted adult or professional. Recorded with `safetyFlag`.
+
+  *As built (Task 8), for `POST /api/agent/chat`:* `screenInput(…, 'chat')` runs before any
+  record is read or model called. A self-harm message, a request to restrict, purge or
+  compensate, or a request for a diagnosis, a prescription or a dose — or a description of an
+  acute symptom — gets a fixed reply from `src/agent/safety-responses.ts` (`kind: "support"`),
+  in Vietnamese or English. The Vietnamese replies name 115. The response carries no category
+  and no `safetyFlag` value that would say which rule fired. The ledger gets a `blocked` row with
+  the message *length* only, and only when AI features are on. Model output additionally passes
+  `containsHarmfulFraming`, the causal filter and evidence grounding (`AI_ARCHITECTURE.md`, the
+  fourth caller). The detectors are phrase lists, not a classifier: they miss paraphrase and
+  over-catch some honest questions, and are one layer among several.
 - **Schema-level tone constraints.** `framing` cannot be `"failed"`; `caveat` cannot be
   omitted. The type system enforces what a prompt can only request.
 

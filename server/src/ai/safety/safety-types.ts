@@ -21,13 +21,29 @@ export type SafetyCategory =
   /** A request the surface is not for, e.g. asking a meal parser to write an essay. */
   | 'off_topic_misuse'
   /**
-   * Reserved for the conversational surfaces, with no detector in this task. Broad
-   * health screening belongs where a person is actually talking to the app (Task 8),
-   * not on a meal-logging field where "đói chết đi được" means "I'm hungry".
+   * The conversational categories (Task 8). Active only where a person is actually
+   * talking to the app — never on a meal-logging field, where "đói chết đi được" means
+   * "I'm hungry".
    */
+  /** Asking for a diagnosis, a prescription or a dose, or describing an acute symptom. */
   | 'unsafe_health_request'
+  /** Self-harm or suicidal intent. */
   | 'sensitive_crisis'
+  /** Restriction, purging or compensation as something to do. */
   | 'unsafe_food_behavior';
+
+/**
+ * Categories that classify what a *person* says about themselves.
+ *
+ * Screened on the way in, never on the way out: a model reply that points someone towards
+ * help necessarily mentions the thing it is helping with, and dropping it for that would
+ * punish exactly the response the policy wants.
+ */
+export const PERSONAL_DISCLOSURE_CATEGORIES: readonly SafetyCategory[] = [
+  'sensitive_crisis',
+  'unsafe_health_request',
+  'unsafe_food_behavior',
+];
 
 export type SafetyDecision =
   | { action: 'allow' }
@@ -43,27 +59,38 @@ export function block(reason: SafetyCategory): SafetyDecision {
  * Which categories are screened for, per purpose.
  *
  * Deliberately narrow, and deliberately honest: a category is listed only where a
- * detector actually runs. `sensitive_crisis`, `unsafe_health_request` and
- * `unsafe_food_behavior` appear in no row, because no detector for them exists yet.
- * Listing them here would make this table a description of an intention rather than of
- * the code.
+ * detector actually runs.
+ *
+ * The three conversational categories are active for `chat` only (Task 8): that is the
+ * one surface where a person describes themselves in their own words, and where the
+ * answer to a crisis or a request for a dose must be a person, not a model.
  *
  * `off_topic_misuse` is the purpose-scoped one: active for extraction, where a request
  * to write an essay is a misdirected call worth refusing before it costs anything, and
- * inactive for conversation, where it is just a thing someone said.
+ * inactive for conversation, where it is just a thing someone said — the agent answers
+ * it with a short boundary instead of a refusal.
  */
 export const ACTIVE_CATEGORIES: Readonly<Record<AiPurpose, readonly SafetyCategory[]>> = {
   meal_parse: ['prompt_injection', 'off_topic_misuse'],
   meal_vision: ['prompt_injection', 'off_topic_misuse'],
-  // No live surface yet. Injection screening is purpose-independent, so it applies;
-  // the health categories wait for the Agent layer to define their policy.
+  // No live surface yet. Injection screening is purpose-independent, so it applies.
   daily: ['prompt_injection'],
   weekly: ['prompt_injection'],
   pattern: ['prompt_injection'],
-  chat: ['prompt_injection'],
+  chat: ['sensitive_crisis', 'unsafe_food_behavior', 'unsafe_health_request', 'prompt_injection'],
   plan: ['prompt_injection'],
 };
 
 export function isActive(purpose: AiPurpose, category: SafetyCategory): boolean {
   return ACTIVE_CATEGORIES[purpose].includes(category);
+}
+
+/**
+ * What is screened in *model-authored* text: the input policy, minus the categories that
+ * describe a person rather than an instruction (`PERSONAL_DISCLOSURE_CATEGORIES`).
+ */
+export function outputCategories(purpose: AiPurpose): readonly SafetyCategory[] {
+  return ACTIVE_CATEGORIES[purpose].filter(
+    (category) => !PERSONAL_DISCLOSURE_CATEGORIES.includes(category),
+  );
 }

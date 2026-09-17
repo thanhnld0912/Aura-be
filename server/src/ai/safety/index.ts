@@ -20,3 +20,14 @@ export { screenInput } from './input-safety.js';
 export { safeDisplayText, sanitizeDisplayText, screenOutputText } from './output-safety.js';
 export { containsCausalClaim, filterCausalClaims, type CausalFilterResult } from './causal-filter.js';
 export { containsProhibitedFraming } from './narrative-framing.js';
+export { containsHarmfulFraming } from './narrative-framing.js';
+export {
+  EvidenceCollector,
+  hasUnsafeMarkup,
+  numbersIn,
+  ungroundedNumbers,
+  type EvidenceItem,
+  type EvidenceKind,
+} from './evidence-grounding.js';
+export { screenCategories } from './input-safety.js';
+export { outputCategories, PERSONAL_DISCLOSURE_CATEGORIES } from './safety-types.js';

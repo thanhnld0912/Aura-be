@@ -323,6 +323,113 @@ retry); `maxTokens` 3,000; `ai-heavy`, 3 per day. `ai_runs.request_meta` is `pro
 **Not persisted.** There is no `weekly_summaries` table, and a generated story is not stored in an
 improvised JSON column. Each `POST` is a new call; the rate limit is what bounds the cost.
 
+### The fourth caller: the conversational agent (Task 8)
+
+A person types a question; AURA answers from their own records, or from general wellness
+knowledge, and never from a model's idea of what their records might say.
+
+```
+POST /api/agent/chat { message }
+  → screenInput(message, 'chat') ──blocked──→ fixed reply, no model call, blocked ledger row
+  → aiInsightsEnabled?            ──off──────→ fixed reply
+  → classifyIntent                  deterministic: topics + scope (day | week | none)
+  → AgentContextBuilder             existing read paths only → numbered evidence
+  → ClaudeAgentReplyGenerator → AiService (purpose chat, AI_MODEL_REASONING) → ClaudeProvider
+  → Zod shape + evidence refinement → toAgentReply
+  → { kind, intent, answer, sections, suggestions, caveats, usedContext, promptVersion }
+```
+
+```
+server/src/agent/                    # pure: no HTTP, no database
+├── intent.ts                        # message → intent, topics, scope
+├── agent-reply.ts                   # prompt, schema, grounding checks, mapping
+├── agent-generator.ts               # the AiService call; recordBlocked
+└── safety-responses.ts              # fixed supportive and boundary replies
+server/src/modules/agent/            # context builder, service, schema, routes
+server/src/ai/safety/evidence-grounding.ts   # shared with the weekly story
+server/src/ai/structured-output.ts           # shared with the weekly story
+```
+
+**No tools.** Claude cannot query the database, call an endpoint or fetch a URL, and there is no
+function calling. The server decides what is read; the model phrases what it is given. A future
+tool-using design would replace `AgentContextBuilder`'s selection, and is deliberately not built.
+
+**Intent and scope, without a model.** Keyword matching on a folded copy of the message (lowercase,
+diacritics removed), in Vietnamese and English. A message is *personal* only when it speaks in the
+first person or names a time; otherwise it is `general` and **no record is read**. `patterns` and
+`habits` always mean a week; "hôm nay"/"today" and "hôm qua"/"yesterday" mean a day; "tuần
+này"/"tuần trước" mean this or last week. A missed topic narrows the context — it never widens it,
+and it never reaches another user.
+
+**Context, from existing read paths only.**
+
+| Scope · topic | Read through | Evidence |
+|---|---|---|
+| day · meals / nutrition | `MealsService.listForDay` (drafts included, then filtered to that date), `MealsRepository.nutritionByDay` | confirmed meals with food names; drafts labelled "unconfirmed, not counted"; confirmed totals; unresolved-item count |
+| day · plan | `DailyPlansService.comparison` | adherence, each item's outcome and time, unplanned logs |
+| day · activity | `DailyEventsService.listForDay` | walks, workouts, sleep, with time and duration |
+| day · check-ins | `DailyEventsService.checkinForDay` | mood, energy, day tag — **never the note** |
+| day · none | events, plan, check-in | counts by type, plan, check-in |
+| week | `InsightsService.weeklyReport` + `buildWeeklyEvidence` (Task 7) | the whole weekly evidence set, reused as-is |
+| week · meals | `MealsRepository.mealTypesByDay` (new, one grouped read) | which weekdays had a breakfast, lunch or dinner logged — "not logged does not show it was skipped" |
+| general | nothing | — |
+
+Every read takes `user.id` from the verified token. No statement carries an id, an email, a
+timestamp or `raw_input`. Text a person wrote (plan and event titles, food names) is sanitised,
+stripped of `<`, `>` and `"`, clipped to 60 characters, and replaced by a neutral label if it trips
+the chat input gate. Lists are capped (6 meals, 6 foods per meal, 3 drafts, 10 plan items, 10
+activity logs, 40 statements) and the rest summarised as a count. Calories appear only when
+`showCalories` is on; otherwise a limitation tells the model not to mention them. A gap is a
+limitation ("unknown, not zero"), and an unavailable Pattern Engine is reported as unavailable — not
+as "no patterns".
+
+`DailyPlansService.comparison` reconciles before answering, exactly as `GET
+/daily-plan/comparison` does; the write is idempotent.
+
+**The message is fenced.** Context and message travel in the user turn, never the system prompt:
+`<aura_context>` JSON, then `<untrusted_user_message>`. Any `<untrusted_user_message>` or
+`<aura_context>` tag inside the message is replaced by `[tag removed]`, so a message cannot close
+its fence or forge a context.
+
+**How a reply is checked.** Inside the Zod schema, against this request's evidence:
+
+| Part | Refs | Numbers | Causal filter | Also |
+|---|---|---|---|---|
+| `answer` | optional | only from cited refs; none without refs | when refs are cited | framing, output screen, markup |
+| `fact` section | required: fact, comparison or limitation | only from cited refs | yes | same |
+| `interpretation` section | required: any kind | only from cited refs | yes | same |
+| `general` section | forbidden | **none** | no — general physiology is not a claim about someone's logs | same |
+| `suggestions`, `caveats` | optional | only from cited refs; none without refs | when refs are cited | same |
+
+`inScope: false` must come with no sections and no suggestions, and is returned as `kind:
+"boundary"`. Framing uses `containsHarmfulFraming` — narrower than the weekly story's list, because a
+chat may be *asked* about BMI or fasting: it refuses advice to restrict, purge or compensate, weight
+targets, doses, supplements as advice, a diagnosis stated about the reader and body labels applied to
+them. A cited pattern gets the engine's caveat appended verbatim; text equal to that caveat bypasses
+the causal rewrite, because the filter would otherwise rewrite "not a cause". A violation is a
+`schema_error`: recorded, retried once, then `422`.
+
+**What the checks do not catch.** A number that *is* in the cited evidence attached to the wrong noun;
+the Vietnamese number words that are also ordinary words; an invented claim with no number in it;
+general education that happens to be wrong. Those are held by the prompt and the refs. General answers
+cannot contain numbers at all ("7 to 9 hours of sleep" fails), which errs towards a `422` over an
+unsourced figure.
+
+**When no model is called.** A blocked message (crisis, unsafe food behaviour, unsafe health request,
+injection) gets a fixed reply from `safety-responses.ts`, in the user's language, whether or not AI
+features are on. A blocked row is written only when AI features are on and a generator is configured,
+with `inputChars` and `safety: "blocked"` — never the text, never the category. `aiInsightsEnabled:
+false` → `kind: "disabled"`. No `ANTHROPIC_API_KEY` → `503` for anything that needs a model.
+
+**Stateless, and no memory.** Each message stands alone. There is no conversation table, no history
+sent to the model and no memory written; `conversationId` is rejected. A follow-up that depends on
+the previous turn gets an answer that says what it lacks.
+
+**Model and limits.** `AI_MODEL_REASONING`; 30 s per attempt (about a minute worst case);
+`maxTokens` 1,500; `ai-chat`, 30 per hour, counting messages the gate answers too.
+`ai_runs.request_meta` is `promptVersion` (`agent-chat-v1`) and `inputChars` — the length of the
+person's message, not of the prompt.
+
 ---
 
 ## 3. Every model call is validated (Rule 10)
@@ -539,16 +646,27 @@ where a detector actually runs:
 | Purpose | Active categories |
 |---|---|
 | `meal_parse`, `meal_vision` | `prompt_injection`, `off_topic_misuse` |
-| `daily`, `weekly`, `pattern`, `chat`, `plan` | `prompt_injection` |
+| `chat` | `sensitive_crisis`, `unsafe_food_behavior`, `unsafe_health_request`, `prompt_injection` |
+| `daily`, `weekly`, `pattern`, `plan` | `prompt_injection` |
 
-`sensitive_crisis`, `unsafe_health_request` and `unsafe_food_behavior` exist in the type
-and are active **nowhere**. That is deliberate, not an oversight:
-
-> **Broad conversational crisis and health screening is deferred to the Agent layer
-> (Task 8).** A meal-logging field is the wrong place for it. "đói chết đi được" and
-> "I'm starving" are how people describe being hungry, and a classifier that treats them
-> as distress makes the app unusable while helping no one. Screening belongs where
-> somebody is actually talking to the app.
+> **As built (Task 8).** The three health categories are active for `chat` and nowhere else. A
+> meal-logging field is still the wrong place for them: "đói chết đi được" and "I'm starving" are
+> how people describe being hungry. On a conversation they run first, in priority order — crisis,
+> food behaviour, health request, then injection — so a message that trips several gets the
+> supportive reply. Each detector is phrase-level, in Vietnamese and English, plus a short list of
+> diacritic-free phrases chosen because they stay unambiguous once folded ("tu sat", not "tu tu",
+> which is also "từ từ"). Idioms are pinned as allowed by tests: "đói muốn chết", "mệt muốn chết",
+> "I'm starving". `off_topic_misuse` stays inactive for chat, as Task 5 decided: an off-topic
+> question reaches the model, which answers with a boundary.
+>
+> **Output is screened with the input policy minus those three categories** (`outputCategories`).
+> A reply that points someone towards help has to name what it is helping with.
+>
+> **Known gaps, stated plainly.** Pattern matching misses paraphrase, sarcasm, misspelling beyond
+> diacritics, and distress that names no act ("mọi thứ vô nghĩa quá"). It over-catches some honest
+> questions: "khó thở khi chạy" gets the health redirect. The design treats the gate as one layer —
+> the prompt, the reply schema, the framing list and the causal filter are the others — and not as
+> a classifier that understands a person.
 
 The governing bias: **blocking a real meal is worse than admitting a probe.** A probe
 that gets through meets a strict schema and achieves nothing; a refused dinner loses the
@@ -645,8 +763,9 @@ the logs.
 |---|---|
 | `safetyFlag` on the API response | Not built. It would change the frozen `/meals/parse` contract; it belongs to the agent response shape. |
 | `PatternNarrationSchema`, `isEstimate` | Not built. Phase 5, with pattern narration. A pattern's `caveat` is required by the evidence contract the weekly story consumes (Task 7). |
-| Input crisis classifier | Deferred to Task 8, on purpose (above). |
-| Output blocklist on dieting/appearance language | Built for generated narrative only: `narrative-framing.ts`, used by the weekly story (Task 7). |
+| Output blocklist on dieting/appearance language | Built for generated prose: `containsProhibitedFraming` (weekly story, Task 7) and the narrower `containsHarmfulFraming` (agent, Task 8). |
+| Input crisis and health screening | Built for `chat` in Task 8, with fixed supportive replies. |
+| Conversation history, long-term memory | Not built. The agent is stateless (Task 8). |
 
 ---
 

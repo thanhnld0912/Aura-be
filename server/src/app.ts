@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { Env } from './config/env.js';
 import type { Database } from './database/client.js';
+import type { AgentReplyGenerator } from './agent/agent-generator.js';
 import type { PatternEvidenceSource } from './insights/pattern-evidence.js';
 import type { WeeklyStoryGenerator } from './insights/weekly-story-generator.js';
 import { loggerOptions } from './lib/logger.js';
@@ -30,6 +31,8 @@ export interface BuildAppOptions {
   weeklyStoryGenerator?: WeeklyStoryGenerator;
   /** Injected by tests in place of the Pattern Engine, which is Phase 5. */
   patternEvidence?: PatternEvidenceSource;
+  /** Injected by tests so the chat agent can run over a scripted provider. */
+  agentReplyGenerator?: AgentReplyGenerator;
 }
 
 /**
@@ -77,6 +80,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     ...(options.imageMealParser ? { imageMealParser: options.imageMealParser } : {}),
     ...(options.weeklyStoryGenerator ? { weeklyStoryGenerator: options.weeklyStoryGenerator } : {}),
     ...(options.patternEvidence ? { patternEvidence: options.patternEvidence } : {}),
+    ...(options.agentReplyGenerator ? { agentReplyGenerator: options.agentReplyGenerator } : {}),
   });
 
   return app;

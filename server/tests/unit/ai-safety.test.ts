@@ -167,16 +167,17 @@ describe('policy is scoped by purpose, not global', () => {
     }
   });
 
-  it('declares no health categories active anywhere yet', () => {
-    // The types carry them; no detector exists. The table must not claim otherwise —
-    // broad conversational screening belongs to the Agent layer (Task 8).
-    for (const categories of Object.values(ACTIVE_CATEGORIES)) {
-      expect(categories).not.toContain('sensitive_crisis');
-      expect(categories).not.toContain('unsafe_health_request');
-      expect(categories).not.toContain('unsafe_food_behavior');
+  it('activates the health categories for conversation, and nowhere else', () => {
+    // Task 5 deferred them to the Agent layer; Task 8 is that layer. Every other surface
+    // keeps the Task 5 policy exactly.
+    const health = ['sensitive_crisis', 'unsafe_health_request', 'unsafe_food_behavior'] as const;
+    for (const [purpose, categories] of Object.entries(ACTIVE_CATEGORIES)) {
+      for (const category of health) {
+        expect(categories.includes(category), `${purpose}/${category}`).toBe(purpose === 'chat');
+      }
     }
     expect(isActive('meal_parse', 'sensitive_crisis')).toBe(false);
-    expect(isActive('chat', 'sensitive_crisis')).toBe(false);
+    expect(isActive('chat', 'sensitive_crisis')).toBe(true);
   });
 
   it('runs no crisis classifier over meal text', () => {
