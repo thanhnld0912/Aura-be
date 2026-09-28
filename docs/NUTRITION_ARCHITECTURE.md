@@ -152,6 +152,21 @@ Step 3 relies on `pg_trgm` over a diacritic-stripped column, so `thit kho`, `th�
 `thit-kho` all match. Vietnamese input arrives with inconsistent diacritics constantly —
 particularly from voice transcription — and exact matching would fail most real input.
 
+*As built — steps 2 and 3 are decided by words, not character trigrams*
+(`nutrition/food-match.ts`). Trigrams weigh a word by its length, so in "thịt gà" the generic
+"thịt" outvoted "gà", every chicken row scored below the 0.45 floor, and *thịt bò* won; and
+because diacritics were compared only after stripping, "bò" matched *bơ* (avocado) as an
+exact hit. `pg_trgm` and a whole-word lookup now only gather the pool; the ranking rules are:
+
+- **Specific words decide.** A generic head ("thịt") narrows the category — the meat of X is
+  not X's egg — but cannot make a match alone. A row must account for at least half of the
+  deciding words; a near-miss spelling counts, at a partial credit below any real match.
+- **Diacritics are optional, but binding when typed.** "bo" may be *bò* or *bơ*; "bò" is never
+  *bơ*. An exact match requires the typed diacritics to agree.
+- **Ambiguity is never confident.** A diacritic-free phrase with two accented readings, a
+  generic-only query, or a curated default picked among several full matches sits at 0.70
+  (`estimate`) — "gà", "cơm", "trứng" still resolve to their defaults, flagged for review.
+
 **Step 7 is the important one.** When nothing resolves, the item is stored with
 `kcal: null`, `source: 'unresolved'`, and surfaced in the response's `unresolved[]` array.
 The UI asks the user to identify it. AURA never fills the gap with a plausible number.

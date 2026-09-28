@@ -1,6 +1,7 @@
+import { rankLocalMatches } from '../food-match.js';
 import type { FoodRepository } from '../food-repository.js';
 import { toCandidate } from '../food-repository.js';
-import { tokenOverlap } from '../normalize.js';
+import { tokenize } from '../normalize.js';
 import type { FoodCandidate, NutritionProvider, SearchOptions } from '../types.js';
 
 /**
@@ -25,26 +26,21 @@ export class LocalFoodProvider implements NutritionProvider {
   async search(query: string, options: SearchOptions = {}): Promise<FoodCandidate[]> {
     const limit = options.limit ?? 10;
 
-    // An exact hit on the normalised name is the fast path and outranks everything.
-    const exact = await this.repository.findExact(query, 'local');
-    const candidates: FoodCandidate[] = exact ? [toCandidate(exact, 0.95, 'exact')] : [];
+    // Three ways into the pool, one judge. The exact row, the trigram neighbours (typos,
+    // run-together words) and every row sharing a whole word with the query — the last is
+    // what lets "gà" be heard in "thịt gà". `rankLocalMatches` then decides what the
+    // phrase means, including whether an "exact" hit really is one ("bò" is not "bơ").
+    const [exact, fuzzy, byWord] = await Promise.all([
+      this.repository.findExact(query, 'local'),
+      this.repository.searchFuzzy(query, { limit: POOL_SIZE, provider: 'local' }),
+      this.repository.searchByWords(tokenize(query), { limit: POOL_SIZE, provider: 'local' }),
+    ]);
 
-    const fuzzy = await this.repository.searchFuzzy(query, { limit: limit + 5, provider: 'local' });
+    const pool = [...(exact ? [exact] : []), ...fuzzy.map((hit) => hit.row), ...byWord];
 
-    for (const { row, similarity } of fuzzy) {
-      if (exact && row.id === exact.id) continue;
-
-      // Trigram similarity decides *whether* something matches; token overlap breaks ties
-      // between things that do. "com tam" against "Cơm tấm sườn bì chả" scores poorly on
-      // trigrams over the whole string but is obviously the right family.
-      const overlap = tokenOverlap(query, `${row.nameVi ?? ''} ${row.nameEn}`);
-      const blended = similarity * 0.7 + overlap * 0.3;
-
-      // §4 step 3: a fuzzy local hit sits between 0.70 and 0.90 — never as high as exact.
-      candidates.push(toCandidate(row, clampFuzzy(blended), 'fuzzy'));
-    }
-
-    return candidates.sort((a, b) => b.matchConfidence - a.matchConfidence).slice(0, limit);
+    return rankLocalMatches(query, pool)
+      .slice(0, limit)
+      .map((ranked) => toCandidate(ranked.food, ranked.confidence, ranked.matchedBy));
   }
 
   async getById(foodId: string): Promise<FoodCandidate | null> {
@@ -55,7 +51,9 @@ export class LocalFoodProvider implements NutritionProvider {
   }
 }
 
-function clampFuzzy(score: number): number {
-  const bounded = Math.min(0.9, Math.max(0.7, score));
-  return Math.round(bounded * 1000) / 1000;
-}
+/**
+ * How many rows each retrieval path contributes. The local dataset is a few hundred rows,
+ * so this is generous: ambiguity is judged from the pool, and a pool cut too short would
+ * hide the second reading that makes a phrase ambiguous.
+ */
+const POOL_SIZE = 60;

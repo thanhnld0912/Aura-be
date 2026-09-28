@@ -141,6 +141,38 @@ export class FoodRepository {
     }));
   }
 
+  /**
+   * Rows containing any of `words` as a whole word, in either name column.
+   *
+   * The complement to `searchFuzzy`, not a replacement. Trigram similarity weighs a word
+   * by its length, so a short word that names the food — "gà", "bò" — is outvoted by a
+   * longer generic one: every chicken row scores 0.375 against "thit ga" and never
+   * clears the fuzzy floor. This brings those rows into the pool; `rankLocalMatches`
+   * decides between them. Words are unaccented `[a-z0-9]` tokens, so they are safe inside
+   * the regex, and they are still passed as bound parameters.
+   */
+  async searchByWords(
+    words: readonly string[],
+    options: { limit?: number; provider?: 'local' | 'usda' | 'off' } = {},
+  ): Promise<FoodRow[]> {
+    const usable = [...new Set(words.map(normalizeFoodName))].filter((word) => /^[a-z0-9]{2,}$/.test(word));
+    if (usable.length === 0) return [];
+
+    const matches = usable.map((word) => {
+      const pattern = `\\m${word}\\M`;
+      return sql`(${foods.searchName} ~ ${pattern} or ${foods.searchNameEn} ~ ${pattern})`;
+    });
+    const conditions = [sql`(${sql.join(matches, sql` or `)})`];
+    if (options.provider) conditions.push(eq(foods.provider, options.provider));
+
+    return this.db
+      .select()
+      .from(foods)
+      .where(and(...conditions))
+      .orderBy(desc(foods.searchPriority), asc(foods.searchName))
+      .limit(options.limit ?? 60);
+  }
+
   async findById(foodId: string): Promise<FoodRow | undefined> {
     return this.db.query.foods.findFirst({ where: eq(foods.id, foodId) });
   }
