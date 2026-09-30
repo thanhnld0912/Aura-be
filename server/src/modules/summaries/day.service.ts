@@ -1,4 +1,11 @@
 import { toLocalTime } from '../../lib/local-date.js';
+import {
+  DAY_FACT_KEYS,
+  deriveDistinctFoods,
+  deriveLoggingGapHours,
+  deriveWorkoutCompleted,
+  deriveWorkoutPlannedTime,
+} from '../../patterns/day-facts.js';
 import type { DailyEventsService } from '../daily-events/daily-events.service.js';
 import type { DailyPlansService } from '../daily-plans/daily-plans.service.js';
 import type { DailySummariesRepository, DailySummaryRow } from './daily-summaries.repository.js';
@@ -36,16 +43,23 @@ export class DayService {
     localDate: string,
     timeZone: string,
   ): Promise<DailySummaryRow> {
-    const [stats, checkin, adherence] = await Promise.all([
+    const [stats, checkin, adherence, facts] = await Promise.all([
       this.events.dayStats(userId, localDate),
       this.events.checkinForDay(userId, localDate),
       this.plansAdherence(userId, localDate),
+      this.summaries.dayFacts(userId, localDate),
     ]);
 
     return this.summaries.upsert(userId, localDate, {
       eventsLogged: stats.eventsLogged,
       mealsLogged: stats.mealsLogged,
-      waterMl: String(stats.waterMl),
+      // Null, not "0", when no water event carries an amount (PATTERN_ENGINE.md §2.1).
+      waterMl: stats.waterMl === null ? null : String(stats.waterMl),
+      distinctFoods: deriveDistinctFoods(facts.distinctResolvedFoods),
+      // No document defines a serving or which categories count, so there is nothing to
+      // compute; null says so, where the old default of 0 claimed "no vegetables".
+      vegetableServings: null,
+      proteinServings: null,
       sleepMinutes: stats.sleepMinutes,
       // Stored as `time`, so they must be the user's wall clock rather than UTC.
       firstMealTime: stats.firstMealAt ? toLocalTime(stats.firstMealAt, timeZone) : null,
@@ -53,13 +67,14 @@ export class DayService {
       bedtime: stats.bedtimeAt ? toLocalTime(stats.bedtimeAt, timeZone) : null,
       planAdherencePct: adherence,
       mood: checkin?.mood ?? null,
+      metrics: {
+        [DAY_FACT_KEYS.workoutCompleted]: deriveWorkoutCompleted(facts.workoutStatuses),
+        [DAY_FACT_KEYS.workoutPlannedTime]: deriveWorkoutPlannedTime(facts.plannedWorkoutMinutes),
+        [DAY_FACT_KEYS.loggingGapHours]: deriveLoggingGapHours(facts.eventInstants),
+      },
     });
-    /**
-     * Nutrition fields are deliberately left at their defaults. `total_kcal`,
-     * `vegetable_servings`, `protein_servings` and `distinct_foods` have no source
-     * until Phase 3 fills `meals` and `meal_items`, and inventing a number here is
-     * exactly the anti-pattern NUTRITION_ARCHITECTURE.md §1 exists to prevent.
-     */
+    // `total_kcal` is not written: calories belong to `GET /api/nutrition/daily`, which
+    // honours `showCalories`, and a second copy here would be a second place to drift.
   }
 
   private async plansAdherence(userId: string, localDate: string): Promise<string | null> {

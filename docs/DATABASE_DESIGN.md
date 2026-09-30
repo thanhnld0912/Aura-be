@@ -268,10 +268,10 @@ erDiagram
         date local_date "UK with user_id"
         int  events_logged
         int  meals_logged
-        int  vegetable_servings
-        int  protein_servings
-        int  distinct_foods
-        numeric water_ml
+        int  vegetable_servings "nullable, no definition yet"
+        int  protein_servings "nullable, no definition yet"
+        int  distinct_foods "nullable"
+        numeric water_ml "nullable"
         int  sleep_minutes "nullable"
         time first_meal_time "nullable"
         time last_meal_time "nullable"
@@ -574,6 +574,32 @@ empty table is a trap for staging.
 **Nutrition snapshots are load-bearing, and now tested.** `meal_items` stores denormalised
 values; a test revises a food's `kcal_per_100g` to 999 and asserts the historical meal is
 unchanged. Nutrition history is an audit record, not a live join.
+
+### 3.11 Phase 5.1: `daily_summaries` as the Pattern Engine's input
+
+`daily_summaries` is the only table the Pattern Engine reads (`PATTERN_ENGINE.md` §2), so a
+default of 0 on a measure is a fabricated observation. Migration `0008` drops the `NOT NULL`
+and the `0` default from the four measures that had one; `0009` backfills existing rows.
+
+| Column | Now | Null means |
+|---|---|---|
+| `water_ml` | sum of `ml` on the day's live water events | no water event carries an amount |
+| `distinct_foods` | distinct resolved `food_id` in the day's confirmed meals | no confirmed meal item resolved to a food |
+| `vegetable_servings`, `protein_servings` | always null | no document defines a serving or which `foods.category` values count |
+
+`events_logged` and `meals_logged` stay `NOT NULL DEFAULT 0`: they count rows in the log, so
+0 is a measurement. `total_kcal` stays null and unwritten; calories belong to
+`GET /api/nutrition/daily`.
+
+**`metrics` jsonb now carries derived day facts**, written on every recompute:
+`workout_completed`, `workout_planned_time`, `logging_gap_hours` (`server/src/patterns/day-facts.ts`).
+A key that is absent means "not computed" and reads as missing.
+
+**Backfill (`0009`).** Hand-written, separate from the generated `0008`, and idempotent: it
+recomputes `water_ml` and `distinct_foods` from the source tables with the same rule the
+application applies on write, and sets both serving columns to null. Nothing is invented — a day
+whose source rows do not say stays null. The `metrics` keys are not backfilled; each day gains
+them on its next recompute.
 
 ---
 

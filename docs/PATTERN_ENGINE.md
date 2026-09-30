@@ -65,6 +65,69 @@ Metrics extracted per day:
 
 `metrics jsonb` on `daily_summaries` holds anything added later without a migration.
 
+> **As built (Phase 5.1).** Layer 1 is `server/src/patterns/`: `metrics.ts` (the metric catalog and
+> `extractDailyFeatures`, one summary row → one day of named metrics), `day-facts.ts` (the derived
+> facts stored in `metrics` jsonb) and `coverage.ts` (series over a window, and coverage). Pure,
+> deterministic, no AI. The summary is still recomputed on write; the nightly job (§8) is not
+> built. No detector, gate, ranking or lifecycle exists yet.
+
+| Metric | Stored as | Status |
+|---|---|---|
+| `bedtime_min`, `first_meal_min`, `last_meal_min` | `time` columns → minutes past local midnight | available — `bedtime_min` has an open question (§2.3) |
+| `sleep_minutes`, `meals_logged`, `plan_adherence_pct`, `water_ml`, `distinct_foods` | columns | available |
+| `breakfast_logged` | first meal strictly before 10:30 → 1, otherwise 0 | available — a day with no meal is null (§2.3) |
+| `mood_score` | `mood` → low 1, okay 2, good 3, great 4 | available |
+| `logging_gap_hours` | `metrics.logging_gap_hours`: longest gap between consecutive events of the local day | available |
+| `workout_planned_time` | `metrics.workout_planned_time`: the day's one planned workout | available — several planned workouts give null (§2.3) |
+| `workout_completed` | `metrics.workout_completed` from `workout_sessions.status` | **no write path** — no endpoint writes `workout_sessions`, so it is null in practice |
+| `vegetable_servings`, `protein_servings` | always null | **undefined** — no document defines a serving or which `foods.category` values count |
+
+### 2.1 Missing is not zero
+
+Every metric is `number | null`, and null means "the log does not say". Nothing substitutes
+a 0 for an absence, because a detector cannot tell a fabricated 0 from a real one:
+
+- **No water event is not 0 ml.** `water_ml` is the sum of `ml` on the day's water events, and
+  null when none carries one. A logged `ml: 0` stays a measured 0.
+- **No resolved food is not 0 foods.** `distinct_foods` is null when no confirmed meal item
+  resolved to a food.
+- **No definition is not 0 servings.** The serving columns are null until a serving is defined.
+- **No meal is not a skipped breakfast.** `breakfast_logged` is null on a day with no meal logged.
+- **One event has no gap.** `logging_gap_hours` needs two events.
+- **A day is observed only if something was logged** (`events_logged > 0`). A summary row that
+  outlived its events is unobserved, and every metric on it is null.
+- Counts of the log itself (`events_logged`, `meals_logged`) are measurements: on an observed
+  day, 0 meals logged is true.
+
+`daily_summaries` enforces this in the schema (`DATABASE_DESIGN.md` §3.11).
+
+### 2.2 Coverage
+
+Coverage is measured against **the days in the analysis window**, never against the rows that
+exist. `daily_summaries` only has a row for a day on which something was written, so counting
+rows would call 20 logged days out of 30 "fully covered".
+
+`seriesFor(features, metric, window)` lays a metric over every calendar day of an inclusive
+local-date window, with `null` for a day that has no row, is unobserved, or has no value.
+`coverage(...series)` returns `{ days, observed, rate }`: `days` is the window length,
+`observed` the days on which **every** series given has a value (both metrics, for a pair), and
+`rate = observed / days`, unrounded. 21 of 30 is exactly 0.7; 20 of 30 is below it.
+
+The ≥ 70% gate (§3.1) is the correlation detector's and is not applied here.
+
+### 2.3 Open decisions
+
+The documents do not settle these. Each is isolated — left null, or flagged on the metric
+definition — so that no detector can depend on a guess:
+
+| Question | Where it is held |
+|---|---|
+| Bedtimes across midnight: 23:30 is 1410 and 00:30 is 30 on a clock scale, and a sleep begun after midnight is filed under the next local day. How should bedtimes be compared? | `METRICS.bedtime_min.unresolved`; the metric's scale is `clock`, not linear |
+| Is a day with logs but no meal "breakfast not logged" (0) or unknown (null)? Built as null. | `METRICS.breakfast_logged.unresolved` |
+| Does a `partial` workout session count as completed? Partial-only days are null. | `day-facts.ts` `UNRESOLVED.partialWorkout` |
+| Which planned time does `workout_planned_time` take when a day plans several workouts? Built as null. | `day-facts.ts` `UNRESOLVED.multiplePlannedWorkouts` |
+| What is a serving, and which `foods.category` values are vegetable or protein? | `METRICS.*_servings.status = 'undefined_definition'` |
+
 ---
 
 ## 3. Layer 2 — Detectors

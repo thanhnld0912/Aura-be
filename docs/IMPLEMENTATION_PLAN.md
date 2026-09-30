@@ -190,6 +190,13 @@ produces `422` rather than corrupt data, and `ai_runs` shows real cost per call.
 **Done when:** the noise fixture produces zero patterns in CI, and a real correlation produces
 a narrative containing no causal verbs.
 
+> **Checkpoint 5.1 — foundation (done).** `daily_summaries` no longer stores unmeasured figures
+> as 0 (migrations `0008`/`0009`, `DATABASE_DESIGN.md` §3.11); the derived day facts are written
+> to `metrics` jsonb; `server/src/patterns/` holds the pure metric extraction, series-over-window
+> and coverage layer (`PATTERN_ENGINE.md` §2–§2.2). Open specification questions are listed in
+> `PATTERN_ENGINE.md` §2.3. Not yet built: the nightly job, detectors, gates, ranking, lifecycle,
+> the `patterns` table and API, narration, `weekly_summaries`.
+
 ---
 
 ## Phase 6 — Frontend integration

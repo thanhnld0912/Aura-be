@@ -314,18 +314,21 @@ describe.skipIf(!hasDatabase)('plan vs actual', () => {
       expect(Number(summary?.['plan_adherence_pct'])).toBe(100);
     });
 
-    it('leaves the nutrition fields untouched until Phase 3 has a source', async () => {
+    it('leaves unmeasured figures null rather than 0', async () => {
       await logEvent({ type: 'walk', title: 'Walked', occurredAt: utcFor('07:10') });
 
       const rows = await harness.sql`
-        select total_kcal, vegetable_servings, protein_servings, distinct_foods
+        select total_kcal, vegetable_servings, protein_servings, distinct_foods, water_ml
         from daily_summaries where user_id = ${userId}`;
 
-      // Zero and null are accurate: nothing has recorded any of these yet. A fabricated
-      // calorie total is exactly what NUTRITION_ARCHITECTURE.md §1 forbids.
+      // Nothing measured any of these, so each says "unknown". A 0 would be a fabricated
+      // observation the Pattern Engine would read as "drank nothing, ate no vegetables"
+      // (PATTERN_ENGINE.md §2.1).
       expect(rows[0]?.['total_kcal']).toBeNull();
-      expect(rows[0]?.['vegetable_servings']).toBe(0);
-      expect(rows[0]?.['distinct_foods']).toBe(0);
+      expect(rows[0]?.['vegetable_servings']).toBeNull();
+      expect(rows[0]?.['protein_servings']).toBeNull();
+      expect(rows[0]?.['distinct_foods']).toBeNull();
+      expect(rows[0]?.['water_ml']).toBeNull();
     });
 
     it('records the day mood from the check-in', async () => {

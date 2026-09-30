@@ -57,6 +57,20 @@
       "when": 1789038390927,
       "tag": "0007_ai_runs_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790696523714,
+      "tag": "0008_summary_nullable_measures",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790696531307,
+      "tag": "0009_summary_measures_backfill",
+      "breakpoints": true
     }
   ]
 }

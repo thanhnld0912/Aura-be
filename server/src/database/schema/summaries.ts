@@ -25,10 +25,21 @@ import { users } from './users.js';
  * `daily_events`, `plan_items` and `checkins`; if the two ever disagree, the source
  * tables are right and this row is stale.
  *
- * Phase 2 computes the behavioural fields. The nutrition fields (`total_kcal`,
- * `vegetable_servings`, `protein_servings`, `distinct_foods`) stay at their zero /
- * null defaults until Phase 3 gives them a real source — a fabricated calorie total
- * would be exactly the anti-pattern NUTRITION_ARCHITECTURE.md §1 exists to prevent.
+ * ## Missing is not zero (PATTERN_ENGINE.md §2.1)
+ *
+ * This row is the Pattern Engine's only input, so a default of 0 would be a fabricated
+ * observation: "no water event" is not "drank 0 ml", and "no serving definition" is not
+ * "ate 0 servings of vegetables". Every figure that can be unknown is therefore nullable
+ * with **no default**, and is null unless something measured it:
+ *
+ * - `water_ml` — the sum of `ml` on the day's water events; null when none carries one.
+ * - `distinct_foods` — distinct resolved foods in confirmed meals; null when there are none.
+ * - `vegetable_servings`, `protein_servings` — always null: no document defines what a
+ *   "serving" is or which food categories count, and a guessed rule would be invented data.
+ * - `total_kcal` — not computed here; `GET /api/nutrition/daily` owns calories.
+ *
+ * `events_logged` and `meals_logged` stay non-null: they count rows in the log itself, so
+ * their 0 is a measurement, not an absence.
  */
 export const dailySummaries = pgTable(
   'daily_summaries',
@@ -41,10 +52,10 @@ export const dailySummaries = pgTable(
 
     eventsLogged: integer('events_logged').notNull().default(0),
     mealsLogged: integer('meals_logged').notNull().default(0),
-    vegetableServings: integer('vegetable_servings').notNull().default(0),
-    proteinServings: integer('protein_servings').notNull().default(0),
-    distinctFoods: integer('distinct_foods').notNull().default(0),
-    waterMl: numeric('water_ml', { precision: 8, scale: 1 }).notNull().default('0'),
+    vegetableServings: integer('vegetable_servings'),
+    proteinServings: integer('protein_servings'),
+    distinctFoods: integer('distinct_foods'),
+    waterMl: numeric('water_ml', { precision: 8, scale: 1 }),
     sleepMinutes: integer('sleep_minutes'),
     firstMealTime: time('first_meal_time'),
     lastMealTime: time('last_meal_time'),
@@ -52,7 +63,11 @@ export const dailySummaries = pgTable(
     planAdherencePct: numeric('plan_adherence_pct', { precision: 5, scale: 2 }),
     totalKcal: numeric('total_kcal', { precision: 8, scale: 2 }),
     mood: moodEnum('mood'),
-    /** Extensible bag, so a new derived metric costs no migration. */
+    /**
+     * Extensible bag, so a new derived metric costs no migration. The Pattern Engine's
+     * derived day facts live here under the keys in `patterns/day-facts.ts`; a key that is
+     * absent means "not computed" (a row written before the key existed) and reads as missing.
+     */
     metrics: jsonb('metrics').$type<Record<string, number | string | null>>(),
     /** Filled by Claude in Phase 5. A summary is valid and useful without prose. */
     narrative: text('narrative'),

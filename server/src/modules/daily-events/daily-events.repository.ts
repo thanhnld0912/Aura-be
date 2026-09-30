@@ -32,7 +32,8 @@ export interface CreateEventInput {
 export interface DayStats {
   eventsLogged: number;
   mealsLogged: number;
-  waterMl: number;
+  /** Null when no water event carries an `ml` — no water logged is not 0 ml drunk. */
+  waterMl: number | null;
   sleepMinutes: number | null;
   firstMealAt: Date | null;
   lastMealAt: Date | null;
@@ -177,9 +178,9 @@ export class DailyEventsRepository {
       .select({
         eventsLogged: sql<number>`count(*)::int`,
         mealsLogged: sql<number>`count(*) filter (where ${dailyEvents.type} = 'meal')::int`,
-        waterMl: sql<number>`
-          coalesce(sum((${dailyEvents.metrics} ->> 'ml')::numeric)
-            filter (where ${dailyEvents.type} = 'water'), 0)::float8`,
+        waterMl: sql<number | null>`
+          sum((${dailyEvents.metrics} ->> 'ml')::numeric)
+            filter (where ${dailyEvents.type} = 'water')::float8`,
         sleepMinutes: sql<number | null>`
           sum(${dailyEvents.durationMin}) filter (where ${dailyEvents.type} = 'sleep')::int`,
         // Epoch seconds rather than the timestamptz itself: a raw `sql` fragment has no
@@ -208,7 +209,7 @@ export class DailyEventsRepository {
     return {
       eventsLogged: row?.eventsLogged ?? 0,
       mealsLogged: row?.mealsLogged ?? 0,
-      waterMl: row?.waterMl ?? 0,
+      waterMl: row?.waterMl ?? null,
       sleepMinutes: row?.sleepMinutes ?? null,
       firstMealAt: toDate(row?.firstMealEpoch),
       lastMealAt: toDate(row?.lastMealEpoch),
