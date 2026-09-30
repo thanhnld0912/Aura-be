@@ -138,6 +138,21 @@ definition — so that no detector can depend on a guess:
 
 Four detector families, each a pure function of a metric series.
 
+> **As built (Phase 5.2C).** `server/src/patterns/registry.ts` is the single place that decides
+> which families may emit; `runApprovedDetectors` runs only those.
+>
+> | Family | Status | Code |
+> |---|---|---|
+> | Correlation | **emits** — the two approved pairs only (D8) | `correlation.ts` |
+> | Timing | evaluation built, **blocked** — D16 (the "30+ days" tier of §7), and no `workout_sessions` write path | `timing.ts` |
+> | Trend | assessment built (n ≥ 14, R² ≥ 0.3, calendar-day x), **blocked** — D9 magnitude, D16 | `trend.ts` |
+> | Frequency / streak | **blocked** — D16, not implemented | — |
+>
+> Measured on the seeded noise fixture (1,000 datasets): correlation passes ≈ 1.4% per pair and
+> trend ≈ 0.3% per metric, close to theory; the timing gates of §3.3 pass ≈ 9% of pure-noise
+> 45-day datasets. Timing also refuses a perfect 0-vs-1 split, because Welch's t is undefined
+> when both groups are constant. Both belong to the decision that unblocks timing.
+
 ### 3.1 Correlation detector
 
 Pairs a subject metric with an object metric over a window and computes Pearson's *r* in SQL:
