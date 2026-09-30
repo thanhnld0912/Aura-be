@@ -78,7 +78,7 @@ export interface CorrelationResult {
   subjectMetric: MetricKey;
   objectMetric: MetricKey;
   direction: Extract<PatternDirection, 'positive' | 'negative'>;
-  /** Pearson's r, −1..1. */
+  /** |r|, 0..1 — the magnitude; the sign is `direction` (D6). */
   strength: number;
   pValue: number;
   /** Complete pairs the statistic was computed from. */
@@ -174,7 +174,7 @@ export function evaluateCorrelation(
       subjectMetric: pair.subject,
       objectMetric: pair.object,
       direction: stats.r > 0 ? 'positive' : 'negative',
-      strength: stats.r,
+      strength: Math.abs(stats.r),
       pValue: stats.pValue,
       sampleSize: stats.n,
       coverage: covered.rate,

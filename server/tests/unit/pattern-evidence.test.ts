@@ -75,17 +75,26 @@ describe('pattern evidence', () => {
     expect(selection).toEqual({ status: 'none', items: [] });
   });
 
-  it('ranks by the engine score, then by evidence, then by id — and caps the list', () => {
+  it('ranks by the engine score, then by strength, then by id — and caps the list', () => {
     const selection = selectPatternEvidence([
       pattern({ id: 'd', score: 0.4 }),
-      pattern({ id: 'b', score: 0.9, sampleSize: 12 }),
-      pattern({ id: 'a', score: 0.9, sampleSize: 20 }),
-      pattern({ id: 'c', score: 0.9, sampleSize: 12 }),
+      pattern({ id: 'a', score: 0.9, strength: 0.5 }),
+      pattern({ id: 'c', score: 0.9, strength: 0.8 }),
+      pattern({ id: 'b', score: 0.9, strength: 0.5 }),
       pattern({ id: 'e', score: 0.1 }),
     ]);
 
-    expect(selection.items.map((item) => item.id)).toEqual(['a', 'b', 'c']);
+    expect(selection.items.map((item) => item.id)).toEqual(['c', 'a', 'b']);
     expect(selection.items).toHaveLength(MAX_STORY_PATTERNS);
+  });
+
+  it('no longer lets sample size break a tie', () => {
+    const selection = selectPatternEvidence([
+      pattern({ id: 'b', score: 0.9, strength: 0.6, sampleSize: 30 }),
+      pattern({ id: 'a', score: 0.9, strength: 0.6, sampleSize: 12 }),
+    ]);
+
+    expect(selection.items.map((item) => item.id)).toEqual(['a', 'b']);
   });
 
   it('never returns a pattern it was not given, and never the same one twice', () => {

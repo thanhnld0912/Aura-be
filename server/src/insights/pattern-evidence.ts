@@ -104,12 +104,13 @@ export function selectPatternEvidence(candidates: readonly unknown[] | null): Pa
     return parsed.success && parsed.data.status === 'active' ? [parsed.data] : [];
   });
 
-  // Engine score first; more evidence breaks a tie; the id makes the order total, so the
-  // same patterns always produce the same story context.
+  // The canonical order is score DESC, strength DESC, lastDetectedAt DESC, key ASC (D6).
+  // This contract carries neither `lastDetectedAt` nor `key` yet, so after strength the id
+  // keeps the order total — the same patterns always produce the same story context.
   active.sort(
     (a, b) =>
       b.score - a.score ||
-      b.sampleSize - a.sampleSize ||
+      b.strength - a.strength ||
       (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
 

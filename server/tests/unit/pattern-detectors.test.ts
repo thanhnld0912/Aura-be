@@ -143,10 +143,26 @@ describe('timing evaluation (PATTERN_ENGINE.md §3.3)', () => {
       groups: { atOrAfter: { n: 20, rate: 0.2 }, before: { n: 20, rate: 0.8 } },
       condition: { metric: 'workout_planned_time', fromValue: 1080 },
     });
-    expect(candidate.strength).toBeCloseTo(-0.6, 12);
+    expect(candidate.strength).toBeCloseTo(0.6, 12);
     expect(candidate.pValue).toBeLessThan(MAX_TIMING_P_VALUE);
     expect(candidate.coverage).toBeCloseTo(40 / 45, 12);
     expect(candidate.evidence).toHaveLength(40);
+  });
+
+  it('carries the sign in direction and the magnitude in strength (D6)', () => {
+    // Late rate 0.2 − early 0.8 = −0.6; the mirror, 0.8 − 0.2 = +0.6.
+    const lower = evaluateTiming(splitDays({ n: 20, done: 4 }, { n: 20, done: 16 }), LATE_WORKOUTS, W45);
+    const higher = evaluateTiming(splitDays({ n: 20, done: 16 }, { n: 20, done: 4 }), LATE_WORKOUTS, W45);
+    if (lower.outcome !== 'passes_gates' || higher.outcome !== 'passes_gates') throw new Error('both should pass');
+
+    expect(lower.candidate.direction).toBe('negative');
+    expect(lower.candidate.strength).toBeCloseTo(0.6, 12);
+    expect(higher.candidate.direction).toBe('positive');
+    expect(higher.candidate.strength).toBeCloseTo(0.6, 12);
+    for (const { candidate } of [lower, higher]) {
+      expect(candidate.strength).toBeGreaterThan(0);
+      expect(candidate.strength).toBeLessThanOrEqual(1);
+    }
   });
 
   it('puts 18:00 itself in the late group and 17:59 in the early one', () => {

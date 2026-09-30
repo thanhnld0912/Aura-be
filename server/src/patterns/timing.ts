@@ -85,7 +85,7 @@ export interface TimingCandidate {
   objectMetric: MetricKey;
   /** Sign of (at-or-after rate − before rate). */
   direction: Extract<PatternDirection, 'positive' | 'negative'>;
-  /** The rate difference (at-or-after − before), −1..1 — the §3.3 effect size. */
+  /** |rate difference| (at-or-after − before), 0..1 — the §3.3 effect size; the sign is `direction` (D6). */
   strength: number;
   pValue: number;
   sampleSize: number;
@@ -177,7 +177,7 @@ export function evaluateTiming(
       subjectMetric: condition.conditionMetric,
       objectMetric: condition.outcomeMetric,
       direction: difference > 0 ? 'positive' : 'negative',
-      strength: difference,
+      strength: Math.abs(difference),
       pValue: test.pValue,
       sampleSize: evidence.length,
       coverage: coverage(split, outcome).rate,

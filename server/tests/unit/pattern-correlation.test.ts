@@ -118,11 +118,55 @@ describe('evaluateCorrelation', () => {
     expect(evaluation.outcome).toBe('emitted');
     if (evaluation.outcome !== 'emitted') return;
     expect(evaluation.result.direction).toBe('negative');
-    expect(evaluation.result.strength).toBeLessThanOrEqual(-MIN_ABS_CORRELATION);
+    expect(evaluation.result.strength).toBeGreaterThanOrEqual(MIN_ABS_CORRELATION);
     expect(evaluation.result.pValue).toBeLessThan(MAX_CORRELATION_P_VALUE);
     expect(evaluation.result.key).toBe('correlation:logging_gap_hours:meals_logged');
     expect(evaluation.result.sampleSize).toBe(24);
     expect(evaluation.result.coverage).toBe(0.8);
+  });
+});
+
+describe('strength and direction (D6)', () => {
+  // Longer gaps, fewer meals; mirroring the meals (5 − m) flips the sign of r and nothing else.
+  const gaps = Array.from({ length: 24 }, (_, i) => 2 + (i % 12));
+  const meals = gaps.map((gap, i) => Math.max(0, 5 - Math.floor(gap / 3) + (i % 5 === 0 ? 1 : 0)));
+  const mirrored = meals.map((m) => 5 - m);
+
+  it('reports a negative r as direction negative with strength |r|', () => {
+    const r = pearsonCorrelation(gaps, meals)!.r;
+    expect(r).toBeLessThan(-0.7);
+    expect(r).toBeGreaterThan(-1);
+
+    const evaluation = evaluateCorrelation(series(GAP_MEALS, gaps, meals), GAP_MEALS, WINDOW);
+    expect(evaluation.outcome).toBe('emitted');
+    if (evaluation.outcome !== 'emitted') return;
+    expect(evaluation.result.direction).toBe('negative');
+    expect(evaluation.result.strength).toBe(Math.abs(r));
+  });
+
+  it('reports a positive r as direction positive with strength r', () => {
+    const r = pearsonCorrelation(gaps, mirrored)!.r;
+    expect(r).toBeGreaterThan(0.7);
+    expect(r).toBeLessThan(1);
+
+    const evaluation = evaluateCorrelation(series(GAP_MEALS, gaps, mirrored), GAP_MEALS, WINDOW);
+    expect(evaluation.outcome).toBe('emitted');
+    if (evaluation.outcome !== 'emitted') return;
+    expect(evaluation.result.direction).toBe('positive');
+    expect(evaluation.result.strength).toBe(r);
+  });
+
+  it('gives mirrored series the same strength in 0..1 and opposite directions', () => {
+    const negative = evaluateCorrelation(series(GAP_MEALS, gaps, meals), GAP_MEALS, WINDOW);
+    const positive = evaluateCorrelation(series(GAP_MEALS, gaps, mirrored), GAP_MEALS, WINDOW);
+    if (negative.outcome !== 'emitted' || positive.outcome !== 'emitted') throw new Error('both should emit');
+
+    expect(negative.result.strength).toBeCloseTo(positive.result.strength, 12);
+    for (const { result } of [negative, positive]) {
+      expect(result.strength).toBeGreaterThanOrEqual(0);
+      expect(result.strength).toBeLessThanOrEqual(1);
+    }
+    expect([negative.result.direction, positive.result.direction]).toEqual(['negative', 'positive']);
   });
 
   it('rejects fewer than 10 complete pairs, however perfect the fit', () => {
