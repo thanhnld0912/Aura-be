@@ -128,10 +128,10 @@ export const METRICS: Record<MetricKey, MetricDefinition> = {
     unit: '0/1',
     scale: 'binary',
     status: 'available',
-    source: 'first meal earlier than 10:30',
-    unresolved:
-      'A day with other logs but no meal is left null here (unknown), not 0. Whether it should count as ' +
-      '"breakfast not logged" is not defined.',
+    // PATTERN_ENGINE_DECISIONS.md D2: a *logging* metric. On an observed day, no confirmed
+    // meal before 10:30 — including no meal at all — is a measured 0; only an unobserved day
+    // is null.
+    source: 'first confirmed meal earlier than 10:30 on an observed day; otherwise 0',
   },
   meals_logged: {
     key: 'meals_logged',
@@ -171,8 +171,8 @@ export const METRICS: Record<MetricKey, MetricDefinition> = {
     unit: '0/1',
     scale: 'binary',
     status: 'no_write_path',
+    // D3: any completed session → 1; sessions but none completed (partial/skipped) → 0.
     source: 'workout_sessions.status (daily_summaries.metrics.workout_completed)',
-    unresolved: 'Whether a partial session counts as completed; partial-only days are null.',
   },
   workout_planned_time: {
     key: 'workout_planned_time',
@@ -276,7 +276,6 @@ export function extractDailyFeatures(row: SummarySnapshot): DailyFeatures {
 
   const bag = row.metrics ?? {};
   const firstMeal = clockMinutes(row.firstMealTime);
-  const hadMeal = row.mealsLogged > 0;
 
   return {
     localDate: row.localDate,
@@ -286,7 +285,9 @@ export function extractDailyFeatures(row: SummarySnapshot): DailyFeatures {
       sleep_minutes: row.sleepMinutes,
       first_meal_min: firstMeal,
       last_meal_min: clockMinutes(row.lastMealTime),
-      breakfast_logged: hadMeal && firstMeal !== null ? (firstMeal < BREAKFAST_BEFORE_MIN ? 1 : 0) : null,
+      // Observed day (checked above): a breakfast in the log is 1, anything else — a later
+      // first meal, or no meal logged — is 0 (D2).
+      breakfast_logged: firstMeal !== null && firstMeal < BREAKFAST_BEFORE_MIN ? 1 : 0,
       meals_logged: row.mealsLogged,
       // Always null: see METRICS.vegetable_servings.status. The column is read anyway so a
       // value written by a later, documented rule flows through without touching this layer.

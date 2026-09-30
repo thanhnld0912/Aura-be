@@ -85,16 +85,32 @@ describe('clockMinutes', () => {
 });
 
 describe('day facts', () => {
-  it('workout_completed: completed is 1, a logged skip is 0, nothing logged is unknown', () => {
-    expect(deriveWorkoutCompleted(['completed'])).toBe(1);
-    expect(deriveWorkoutCompleted(['skipped', 'completed'])).toBe(1);
-    expect(deriveWorkoutCompleted(['skipped'])).toBe(0);
-    expect(deriveWorkoutCompleted([])).toBeNull();
-  });
+  describe('workout_completed (decision D3)', () => {
+    it('is 1 for a completed session', () => {
+      expect(deriveWorkoutCompleted(['completed'])).toBe(1);
+    });
 
-  it('workout_completed: leaves a partial-only day unknown, because no document says what partial counts as', () => {
-    expect(deriveWorkoutCompleted(['partial'])).toBeNull();
-    expect(deriveWorkoutCompleted(['partial', 'skipped'])).toBeNull();
+    it('is 0 for a skipped-only day — a logged skip is a measured "not completed"', () => {
+      expect(deriveWorkoutCompleted(['skipped'])).toBe(0);
+    });
+
+    it('is 0 for a partial-only day — partial is not completed', () => {
+      expect(deriveWorkoutCompleted(['partial'])).toBe(0);
+    });
+
+    it('is 1 when any of several sessions was completed, in any order', () => {
+      expect(deriveWorkoutCompleted(['skipped', 'completed'])).toBe(1);
+      expect(deriveWorkoutCompleted(['partial', 'skipped', 'completed'])).toBe(1);
+    });
+
+    it('is 0 when several sessions exist and none was completed', () => {
+      expect(deriveWorkoutCompleted(['partial', 'skipped'])).toBe(0);
+      expect(deriveWorkoutCompleted(['skipped', 'skipped'])).toBe(0);
+    });
+
+    it('is unknown with no session at all, never 0', () => {
+      expect(deriveWorkoutCompleted([])).toBeNull();
+    });
   });
 
   it('workout_planned_time: one planned workout gives its time; none or several give nothing', () => {
@@ -165,12 +181,18 @@ describe('extractDailyFeatures', () => {
     expect(breakfast('13:00:00')).toBe(0);
   });
 
-  it('leaves breakfast unknown on a day with no meal logged, rather than calling it skipped', () => {
+  it('calls breakfast not logged (0) on an observed day with no meal — decision D2', () => {
     const { values } = extractDailyFeatures(row({ mealsLogged: 0, firstMealTime: null, lastMealTime: null }));
-    expect(values.breakfast_logged).toBeNull();
+    expect(values.breakfast_logged).toBe(0);
     expect(values.first_meal_min).toBeNull();
     // The count itself is a measurement of the log: this day had logs, and no meal among them.
     expect(values.meals_logged).toBe(0);
+  });
+
+  it('leaves breakfast unknown (null) only on an unobserved day — decision D2', () => {
+    const unobserved = extractDailyFeatures(row({ eventsLogged: 0, mealsLogged: 0, firstMealTime: null }));
+    expect(unobserved.observed).toBe(false);
+    expect(unobserved.values.breakfast_logged).toBeNull();
   });
 
   it('keeps missing water, nutrition and sleep missing — never 0', () => {
@@ -283,11 +305,11 @@ describe('coverage', () => {
     const features = [
       extractDailyFeatures(row({ localDate: '2026-03-01' })),
       extractDailyFeatures(row({ localDate: '2026-03-02', bedtime: null })),
-      extractDailyFeatures(row({ localDate: '2026-03-03', mealsLogged: 0, firstMealTime: null })),
+      extractDailyFeatures(row({ localDate: '2026-03-03', sleepMinutes: null })),
     ];
     const pair = coverage(
       seriesFor(features, 'bedtime_min', window),
-      seriesFor(features, 'breakfast_logged', window),
+      seriesFor(features, 'sleep_minutes', window),
     );
     expect(pair).toEqual({ days: 30, observed: 1, rate: 1 / 30 });
   });

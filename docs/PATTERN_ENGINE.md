@@ -75,11 +75,11 @@ Metrics extracted per day:
 |---|---|---|
 | `bedtime_min`, `first_meal_min`, `last_meal_min` | `time` columns → minutes past local midnight | available — `bedtime_min` has an open question (§2.3) |
 | `sleep_minutes`, `meals_logged`, `plan_adherence_pct`, `water_ml`, `distinct_foods` | columns | available |
-| `breakfast_logged` | first meal strictly before 10:30 → 1, otherwise 0 | available — a day with no meal is null (§2.3) |
+| `breakfast_logged` | observed day: first meal strictly before 10:30 → 1, otherwise (including no meal) 0 | available (decision D2) |
 | `mood_score` | `mood` → low 1, okay 2, good 3, great 4 | available |
 | `logging_gap_hours` | `metrics.logging_gap_hours`: longest gap between consecutive events of the local day | available |
 | `workout_planned_time` | `metrics.workout_planned_time`: the day's one planned workout | available — several planned workouts give null (§2.3) |
-| `workout_completed` | `metrics.workout_completed` from `workout_sessions.status` | **no write path** — no endpoint writes `workout_sessions`, so it is null in practice |
+| `workout_completed` | `metrics.workout_completed`: any completed session → 1, sessions but none completed → 0 (decision D3) | **no write path** — no endpoint writes `workout_sessions`, so it is null in practice |
 | `vegetable_servings`, `protein_servings` | always null | **undefined** — no document defines a serving or which `foods.category` values count |
 
 ### 2.1 Missing is not zero
@@ -92,7 +92,8 @@ a 0 for an absence, because a detector cannot tell a fabricated 0 from a real on
 - **No resolved food is not 0 foods.** `distinct_foods` is null when no confirmed meal item
   resolved to a food.
 - **No definition is not 0 servings.** The serving columns are null until a serving is defined.
-- **No meal is not a skipped breakfast.** `breakfast_logged` is null on a day with no meal logged.
+- **An unobserved day is not a skipped breakfast.** `breakfast_logged` measures *logging*: on an observed day with
+  no breakfast in the log it is 0, on an unobserved day null (decision D2).
 - **One event has no gap.** `logging_gap_hours` needs two events.
 - **A day is observed only if something was logged** (`events_logged > 0`). A summary row that
   outlived its events is unobserved, and every metric on it is null.
@@ -117,14 +118,17 @@ The ≥ 70% gate (§3.1) is the correlation detector's and is not applied here.
 
 ### 2.3 Open decisions
 
+> Superseded by **`PATTERN_ENGINE_DECISIONS.md`**, which resolves or re-scopes each question below
+> (D1–D5) and records the rest of the Phase 5 decisions. The table is kept as the Phase 5.1 record.
+
 The documents do not settle these. Each is isolated — left null, or flagged on the metric
 definition — so that no detector can depend on a guess:
 
 | Question | Where it is held |
 |---|---|
 | Bedtimes across midnight: 23:30 is 1410 and 00:30 is 30 on a clock scale, and a sleep begun after midnight is filed under the next local day. How should bedtimes be compared? | `METRICS.bedtime_min.unresolved`; the metric's scale is `clock`, not linear |
-| Is a day with logs but no meal "breakfast not logged" (0) or unknown (null)? Built as null. | `METRICS.breakfast_logged.unresolved` |
-| Does a `partial` workout session count as completed? Partial-only days are null. | `day-facts.ts` `UNRESOLVED.partialWorkout` |
+| ~~Is a day with logs but no meal "breakfast not logged" (0) or unknown (null)?~~ Resolved: 0 (D2, Phase 5.2A). | — |
+| ~~Does a `partial` workout session count as completed?~~ Resolved: no, a partial-only day is 0 (D3, Phase 5.2A). | — |
 | Which planned time does `workout_planned_time` take when a day plans several workouts? Built as null. | `day-facts.ts` `UNRESOLVED.multiplePlannedWorkouts` |
 | What is a serving, and which `foods.category` values are vegetable or protein? | `METRICS.*_servings.status = 'undefined_definition'` |
 

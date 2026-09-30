@@ -140,13 +140,13 @@ describe.skipIf(!hasDatabase)('pattern engine input: daily summaries', () => {
       expect(row.distinctFoods).toBeNull();
     });
 
-    it('does not count a draft', async () => {
+    it('does not count a draft — not even as breakfast', async () => {
       const rice = await foodId('cơm trắng');
       await logEvent({ type: 'walk', title: 'Walk', occurredAt: utcFor('07:00') });
       await inject('POST', '/api/meals', {
-        mealType: 'lunch',
+        mealType: 'breakfast',
         status: 'draft',
-        occurredAt: utcFor('12:00'),
+        occurredAt: utcFor('07:30'),
         items: [{ foodId: rice, quantity: 1, unit: 'bowl' }],
       });
       await logEvent({ type: 'walk', title: 'Walk', occurredAt: utcFor('17:00') });
@@ -154,7 +154,71 @@ describe.skipIf(!hasDatabase)('pattern engine input: daily summaries', () => {
       const row = await summaryFor();
       expect(row.mealsLogged).toBe(0);
       expect(row.distinctFoods).toBeNull();
-      expect(extractDailyFeatures(row).values.breakfast_logged).toBeNull();
+      // Observed day (two walks) with no confirmed meal: breakfast not logged (D2).
+      expect(extractDailyFeatures(row).values.breakfast_logged).toBe(0);
+    });
+  });
+
+  describe('breakfast_logged (decision D2)', () => {
+    const breakfastOn = async (localDate = DATE) => extractDailyFeatures(await summaryFor(localDate)).values.breakfast_logged;
+
+    const logMeal = async (mealType: string, localTime: string, day = 4) => {
+      const response = await inject('POST', '/api/meals', {
+        mealType,
+        occurredAt: utcFor(localTime, day),
+        items: [{ foodId: await foodId('phở bò'), quantity: 1, unit: 'bowl' }],
+      });
+      expect(response.statusCode).toBe(201);
+      return response.json();
+    };
+
+    it('is 1 for a confirmed meal before 10:30', async () => {
+      await logMeal('breakfast', '07:30');
+      expect(await breakfastOn()).toBe(1);
+    });
+
+    it('is 0 on an observed day whose only meal is later', async () => {
+      await logMeal('lunch', '12:00');
+      expect(await breakfastOn()).toBe(0);
+    });
+
+    it('is 0 on an observed day with no meal at all', async () => {
+      await logEvent({ type: 'walk', title: 'Walk', occurredAt: utcFor('07:00') });
+      expect(await breakfastOn()).toBe(0);
+    });
+
+    it('is null on a day with nothing logged — no row, or a row whose events were all deleted', async () => {
+      const walk = await logEvent({ type: 'walk', title: 'Walk', occurredAt: utcFor('07:00', 5) });
+      const removed = await harness.app.inject({ method: 'DELETE', url: `/api/events/${walk.id}`, headers: bearer(token) });
+      expect(removed.statusCode).toBe(204);
+
+      const window = { from: '2026-03-03', to: '2026-03-05' };
+      const rows = await summaries.findRange(userId, window.from, window.to);
+      // 3 March has no row at all; 5 March has a row with no live events.
+      expect(rows.map((row) => [row.localDate, row.eventsLogged])).toEqual([['2026-03-05', 0]]);
+      const series = seriesFor(rows.map(extractDailyFeatures), 'breakfast_logged', window);
+      expect(series.points.map((point) => point.value)).toEqual([null, null, null]);
+    });
+
+    it('does not count a deleted meal', async () => {
+      const meal = await logMeal('breakfast', '07:30');
+      await logEvent({ type: 'walk', title: 'Walk', occurredAt: utcFor('17:00') });
+      expect(await breakfastOn()).toBe(1);
+
+      const removed = await harness.app.inject({ method: 'DELETE', url: `/api/meals/${meal.id}`, headers: bearer(token) });
+      expect(removed.statusCode).toBe(204);
+      // The walk keeps the day observed, and the deleted breakfast is gone from it.
+      expect(await breakfastOn()).toBe(0);
+    });
+
+    it('files a meal by its local date, not its UTC date', async () => {
+      // 23:30 UTC on 4 March is 06:30 on 5 March in Ho Chi Minh City.
+      await logEvent({ type: 'walk', title: 'Walk', occurredAt: utcFor('20:00') });
+      await logMeal('breakfast', '06:30', 5);
+      expect(utcFor('06:30', 5)).toBe('2026-03-04T23:30:00.000Z');
+
+      expect(await breakfastOn('2026-03-05')).toBe(1);
+      expect(await breakfastOn('2026-03-04')).toBe(0);
     });
   });
 
@@ -209,6 +273,59 @@ describe.skipIf(!hasDatabase)('pattern engine input: daily summaries', () => {
 
       const row = await summaryFor();
       expect(row.metrics?.[DAY_FACT_KEYS.workoutCompleted]).toBe(1);
+    });
+
+    describe('workout_completed (decision D3)', () => {
+      /** No endpoint writes `workout_sessions`, so sessions are inserted directly, each on its own live event. */
+      const addSessions = async (statuses: Array<'completed' | 'partial' | 'skipped'>) => {
+        const ids: string[] = [];
+        for (const status of statuses) {
+          const [event] = await harness.sql`
+            insert into daily_events (user_id, local_date, type, occurred_at, title)
+            values (${userId}, ${DATE}, 'workout', ${utcFor('18:00')}, 'Gym')
+            returning id`;
+          // The schema requires a skip reason exactly when the session was skipped.
+          await harness.sql`
+            insert into workout_sessions (event_id, user_id, workout_type, status, skip_reason)
+            values (${event!['id']}, ${userId}, 'gym', ${status}, ${status === 'skipped' ? 'tired' : null})`;
+          ids.push(event!['id'] as string);
+        }
+        return ids;
+      };
+      /** A logged walk triggers the day's recompute. */
+      const completion = async () => {
+        await logEvent({ type: 'walk', title: 'Walk', occurredAt: utcFor('19:00') });
+        return (await summaryFor()).metrics?.[DAY_FACT_KEYS.workoutCompleted];
+      };
+
+      it('is 0 when the only session was skipped', async () => {
+        await addSessions(['skipped']);
+        expect(await completion()).toBe(0);
+      });
+
+      it('is 0 when the only session was partial', async () => {
+        await addSessions(['partial']);
+        expect(await completion()).toBe(0);
+      });
+
+      it('is 1 when one of several sessions was completed', async () => {
+        await addSessions(['skipped', 'completed', 'partial']);
+        expect(await completion()).toBe(1);
+      });
+
+      it('is 0 when several sessions exist and none was completed', async () => {
+        await addSessions(['partial', 'skipped']);
+        expect(await completion()).toBe(0);
+      });
+
+      it('ignores a session whose event was deleted', async () => {
+        const [completedEvent] = await addSessions(['completed']);
+        await harness.sql`update daily_events set deleted_at = now() where id = ${completedEvent!}`;
+        expect(await completion()).toBeNull();
+
+        await addSessions(['skipped']);
+        expect(await completion()).toBe(0);
+      });
     });
 
     it('stores unknown day facts as null, not 0', async () => {

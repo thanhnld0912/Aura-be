@@ -22,19 +22,20 @@ export type DayFacts = Record<DayFactKey, number | null>;
 export type WorkoutStatus = 'completed' | 'partial' | 'skipped';
 
 /**
- * `workout_completed` — "0/1 from `workout_sessions.status`" (§2).
+ * `workout_completed` — "0/1 from `workout_sessions.status`" (§2), per
+ * `PATTERN_ENGINE_DECISIONS.md` D3.
  *
  * - any `completed` session → 1
- * - only `skipped` sessions → 0 (a logged skip is a measured "did not")
+ * - sessions exist, none `completed` (only `partial` and/or `skipped`) → 0: a logged
+ *   session that did not reach `completed` is a measured "not completed"
  * - no session → null (nothing logged is not "did not work out")
- * - a `partial` session with no `completed` one → null: whether partial counts as
- *   completed is not defined anywhere (see `UNRESOLVED.partialWorkout`)
+ *
+ * Only the status is read — never duration or effort. `partial` still counts as *activity*
+ * elsewhere (`weekly-report.ts` `activeDays`); that is a different metric.
  */
 export function deriveWorkoutCompleted(statuses: readonly WorkoutStatus[]): number | null {
   if (statuses.length === 0) return null;
-  if (statuses.includes('completed')) return 1;
-  if (statuses.includes('partial')) return null;
-  return 0;
+  return statuses.includes('completed') ? 1 : 0;
 }
 
 /**
@@ -78,6 +79,5 @@ export function deriveDistinctFoods(distinctResolvedFoods: number): number | nul
  * this layer and must be settled before the detector that depends on it is written.
  */
 export const UNRESOLVED = {
-  partialWorkout: 'Whether a `partial` workout session counts as completed for `workout_completed`.',
   multiplePlannedWorkouts: 'Which planned time `workout_planned_time` takes when a day has several planned workouts.',
 } as const;
