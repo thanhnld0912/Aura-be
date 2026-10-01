@@ -1,4 +1,4 @@
-import { and, eq, inArray, lte } from 'drizzle-orm';
+import { and, eq, inArray, lte, sql } from 'drizzle-orm';
 import type { Db } from '../../database/client.js';
 import { patterns } from '../../database/schema/patterns.js';
 import { decideDetection, staleRetentionCutoff } from '../../patterns/lifecycle.js';
@@ -61,6 +61,21 @@ function measuredFields(detected: DetectedPattern) {
 
 export class PatternsRepository {
   constructor(private readonly db: Db) {}
+
+  /**
+   * Runs `work` in one transaction that holds this user's pattern lock, handing it a
+   * repository bound to that transaction. A detection run persists its detections and
+   * retires what it no longer finds as one unit: it commits whole or not at all, and two runs
+   * for the same user cannot interleave (the second waits). Other users are not blocked.
+   *
+   * The methods' own transactions become savepoints inside it.
+   */
+  async withUserLock<T>(userId: string, work: (repository: PatternsRepository) => Promise<T>): Promise<T> {
+    return this.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`patterns:${userId}`}, 0))`);
+      return work(new PatternsRepository(tx as unknown as Db));
+    });
+  }
 
   async findByUserAndKey(userId: string, key: string): Promise<PatternRow | undefined> {
     return this.db.query.patterns.findFirst({

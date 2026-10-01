@@ -316,9 +316,43 @@ keep repeating a claim that the data no longer supports.
 > | | Status |
 > |---|---|
 > | Persistence, lifecycle, ranking, evidence source, caveat catalog (English correlation) | **implemented** |
-> | Production wiring of `PatternsEvidenceSource` (today `NO_PATTERN_ENGINE`), the nightly detection run, stale marking and the retention job | **planned** |
+> | Detection run for one user and one closed day, with stale reconciliation (5.3C-1, below) | **implemented** |
+> | Scheduler (nightly trigger over users, D11), backfill, retention job, production wiring of `PatternsEvidenceSource` (today `NO_PATTERN_ENGINE`) | **planned** |
 > | `/api/patterns`, `/:id/series`, `/:id/dismiss`; nullable caveat in the published API; Vietnamese and other-kind caveat copy; narration | **planned** |
 > | Timing, trend, frequency, streak detectors | **blocked** (`registry.ts`) |
+>
+> **As built (Phase 5.3C-1) — detection orchestration.** `PatternDetectionService.runForUser(userId,
+> targetDate)` (`server/src/modules/patterns/pattern-detection.service.ts`) runs one user for one
+> local day. It holds no detector logic:
+>
+> 1. **Closed day only.** `targetDate` must be a real calendar date strictly before the user's today
+>    in their own timezone (`todayIn`); otherwise the run is refused (`ValidationError`,
+>    `invalid_date` / `day_not_closed`) — never shifted to another day. An unknown user is
+>    `NotFoundError`.
+> 2. **Windows from the registry.** `detectorWindowsEnding(targetDate)` gives each emitting family its
+>    own documented window (correlation: 30 days ending on `targetDate`); the run reads
+>    `daily_summaries` over `detectionRange` and maps rows with `extractDailyFeatures`.
+> 3. **Detectors from the registry.** `runApprovedDetectors` runs only the families allowed to emit,
+>    and only the approved pairs; each result passes `toDetectedPattern` before anything is written.
+> 4. **One transaction per run**, holding a per-user advisory lock (`PatternsRepository.withUserLock`):
+>    every detection goes through `recordDetection` (created, redetected, reactivated, suppressed,
+>    outdated), then **reconciliation**: each of the user's **active** patterns the run did not return
+>    goes stale (`markStale`) — decided by the run's result set, not by timestamps — unless its stored
+>    evidence ends after `targetDate` (`decideAbsence`: an older run cannot retire a newer claim).
+>    Stale and dismissed patterns are never reconciled; nothing is deleted. Any failure rolls the whole
+>    run back.
+> 5. **Result.** Counts per outcome plus `patternsStaled`, the window and the families run. A run that
+>    found nothing returns zeros; every failure (user, date, read, detector, contract, write) throws.
+>    One structured log line per run, with ids, the window and the counts — no day data.
+>
+> Running the same user and day twice leaves one row per key: `(user_id, key)` and the lifecycle make
+> it idempotent, without a run ledger.
+>
+> **Known limitation.** A stale row keeps the window of its last detection, and the table does not
+> record which run made it stale. So re-running the *exact* day a pattern was last detected on, after a
+> later run has staled it, re-detects it from that older window and reactivates it. Only a manual
+> re-run of a past day can do this (the scheduler will run the latest closed day); closing it needs the
+> staling run's date stored with the row — a schema change, deferred to the backfill work.
 
 `ai_feedback.rating = 'wrong'` on a pattern-derived insight forces immediate recomputation and
 lowers that pattern's ranking. **User contradiction is the strongest available signal that a

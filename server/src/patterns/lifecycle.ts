@@ -60,6 +60,17 @@ export function decideDetection(existing: LifecycleState, detectedWindowEnd: str
   }
 }
 
+/**
+ * What a complete detection run that did **not** return an active pattern does to it.
+ * `stale` when the run covers the stored evidence's end or later; `outdated` when the run
+ * ends before it — an older run cannot retire a claim a newer one made. Only an active
+ * pattern is ever asked: stale stays stale and a dismissal is the user's.
+ */
+export function decideAbsence(existing: LifecycleState, runWindowEnd: string): 'stale' | 'outdated' {
+  if (existing.status !== 'active') throw new Error(`only an active pattern can go stale, not ${existing.status}`);
+  return runWindowEnd < existing.windowEnd ? 'outdated' : 'stale';
+}
+
 /** The moment before which a stale pattern has passed its retention and may be deleted. */
 export function staleRetentionCutoff(now: Date): Date {
   return new Date(now.getTime() - STALE_RETENTION_DAYS * DAY_MS);

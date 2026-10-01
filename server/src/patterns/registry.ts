@@ -1,12 +1,13 @@
 import type { PATTERN_KINDS } from '../insights/pattern-evidence.js';
 import {
+  CORRELATION_WINDOW_DAYS,
   READY_CORRELATION_PAIRS,
   correlationKey,
   detectCorrelations,
   type CorrelationPair,
   type CorrelationResult,
 } from './correlation.js';
-import type { AnalysisWindow } from './coverage.js';
+import { windowEnding, type AnalysisWindow } from './coverage.js';
 import type { DailyFeatures, MetricKey } from './metrics.js';
 
 /**
@@ -113,6 +114,23 @@ export type DetectorResult = CorrelationResult;
 
 export interface DetectorWindows {
   correlation: AnalysisWindow;
+}
+
+/**
+ * The window each emitting family analyses for a run ending on `windowEnd` — the last
+ * closed day. Each family's own documented length; nothing here is a new window.
+ */
+export function detectorWindowsEnding(windowEnd: string): DetectorWindows {
+  return { correlation: windowEnding(windowEnd, CORRELATION_WINDOW_DAYS) };
+}
+
+/** The days a run must read: from the earliest window start to the shared end. */
+export function detectionRange(windows: DetectorWindows): AnalysisWindow {
+  const all = Object.values(windows);
+  return {
+    from: all.map((window) => window.from).sort()[0]!,
+    to: all.map((window) => window.to).sort().at(-1)!,
+  };
 }
 
 /**
