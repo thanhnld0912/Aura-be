@@ -1,5 +1,5 @@
-import { NotFoundError, ValidationError } from '../../lib/errors.js';
-import { LOCAL_DATE_PATTERN, addLocalDays, todayIn } from '../../lib/local-date.js';
+import { NotFoundError } from '../../lib/errors.js';
+import { todayIn } from '../../lib/local-date.js';
 import { decideAbsence } from '../../patterns/lifecycle.js';
 import { extractDailyFeatures, type DailyFeatures } from '../../patterns/metrics.js';
 import { toDetectedPattern } from '../../patterns/persistence.js';
@@ -12,6 +12,7 @@ import {
   type DetectorResult,
   type DetectorWindows,
 } from '../../patterns/registry.js';
+import { assertClosedDay } from '../summaries/closed-day.service.js';
 import type { DailySummariesRepository } from '../summaries/daily-summaries.repository.js';
 import type { UsersRepository } from '../users/users.repository.js';
 import type { DetectionOutcome, PatternsRepository } from './patterns.repository.js';
@@ -42,6 +43,9 @@ import type { DetectionOutcome, PatternsRepository } from './patterns.repository
  *
  * Running the same user and date twice leaves one row per key — `(user_id, key)` and the
  * lifecycle are what make it idempotent; there is no run ledger.
+ *
+ * It reads the summaries as they are. Finalising a closed day first is the caller's step
+ * (`ClosedDayPatternProcessor`).
  *
  * A failure — unknown user, a date that is not closed, a read, a detector, a write — throws.
  * A run that found nothing returns a result with zero detections; the two never look alike.
@@ -170,17 +174,5 @@ export class PatternDetectionService {
       );
       throw error;
     }
-  }
-}
-
-/** A real `YYYY-MM-DD` calendar date strictly before the user's today; anything else is refused. */
-function assertClosedDay(targetDate: string, today: string): void {
-  if (!LOCAL_DATE_PATTERN.test(targetDate) || addLocalDays(targetDate, 0) !== targetDate) {
-    throw new ValidationError('targetDate must be a calendar date', [{ path: 'targetDate', issue: 'invalid_date' }]);
-  }
-  if (targetDate >= today) {
-    throw new ValidationError('targetDate must be a closed day, before the user\'s today', [
-      { path: 'targetDate', issue: 'day_not_closed' },
-    ]);
   }
 }

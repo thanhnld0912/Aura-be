@@ -1,17 +1,18 @@
 import { ulid } from 'ulid';
 import { NotFoundError } from '../lib/errors.js';
 import { addLocalDays, todayIn } from '../lib/local-date.js';
-import type { PatternDetectionService } from '../modules/patterns/pattern-detection.service.js';
+import type { ClosedDayPatternProcessor } from '../modules/patterns/closed-day-pattern-processor.js';
 import type { UsersRepository } from '../modules/users/users.repository.js';
 
 /**
  * The nightly pattern detection job (DEPLOYMENT.md §6, PATTERN_ENGINE_DECISIONS.md D11).
  *
- * One global run walks every active user and asks `PatternDetectionService.runForUser` to
- * process **that user's** most recently closed local day: yesterday in the user's own
- * timezone, from one instant fixed at the start of the run. It decides who and which day,
- * and nothing else — features, detectors, persistence and reconciliation are the
- * service's.
+ * One global run walks every active user and asks `ClosedDayPatternProcessor.process` to
+ * handle **that user's** most recently closed local day: yesterday in the user's own
+ * timezone, from one instant fixed at the start of the run. For each user the day is
+ * finalised first (plan reconciliation and summary recompute, D15) and detected only after
+ * that has committed — the order is per user, inside one call, so detection can never start
+ * before its day is final. The job decides who and which day, and nothing else.
  *
  * - **Sequential.** Users are processed one at a time, in pages of `USER_PAGE_SIZE`. A run is
  *   a few indexed reads and writes per user; one at a time keeps the database load flat, and
@@ -49,7 +50,7 @@ export interface JobLogger {
 
 export interface NightlyPatternDetectionDeps {
   users: Pick<UsersRepository, 'listActiveTimezones'>;
-  detection: Pick<PatternDetectionService, 'runForUser'>;
+  processor: Pick<ClosedDayPatternProcessor, 'process'>;
   logger: JobLogger;
   pageSize?: number;
   /** Monotonic-enough clock for the duration; the run's instant is passed to `run`. */
@@ -80,7 +81,7 @@ export class NightlyPatternDetection {
           let targetDate: string | undefined;
           try {
             targetDate = closedDayFor(user.timezone, now);
-            await this.deps.detection.runForUser(user.id, targetDate);
+            await this.deps.processor.process(user.id, targetDate);
             counts.succeededUsers += 1;
           } catch (error) {
             if (error instanceof NotFoundError) {

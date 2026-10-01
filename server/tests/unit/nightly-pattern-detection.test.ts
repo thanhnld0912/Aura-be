@@ -70,8 +70,8 @@ describe('a nightly run', () => {
           return sorted.slice(start, start + limit);
         },
       },
-      detection: {
-        runForUser: (async (userId: string, targetDate: string) => {
+      processor: {
+        process: (async (userId: string, targetDate: string) => {
           calls.push([userId, targetDate]);
           return runForUser(userId, targetDate);
         }) as never,
@@ -180,7 +180,7 @@ describe('a nightly run', () => {
           throw new Error('connection refused');
         },
       },
-      detection: { runForUser: async () => ({}) as never },
+      processor: { process: async () => ({}) as never },
       logger,
     });
     await expect(failing.run(NOW)).rejects.toThrow('connection refused');

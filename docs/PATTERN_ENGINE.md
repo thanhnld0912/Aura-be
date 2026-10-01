@@ -318,7 +318,8 @@ keep repeating a claim that the data no longer supports.
 > | Persistence, lifecycle, ranking, evidence source, caveat catalog (English correlation) | **implemented** |
 > | Detection run for one user and one closed day, with stale reconciliation (5.3C-1, below) | **implemented** |
 > | Nightly detection over all active users (5.3C-2, below) — off until `CRON_ENABLED=true` | **implemented** |
-> | Backfill, retention job, the 02:00 closed-day summary recompute (D15), production wiring of `PatternsEvidenceSource` (today `NO_PATTERN_ENGINE`) | **planned** |
+> | Closed-day finalisation before detection (5.3C-3, below) | **implemented** |
+> | Backfill, retention job, production wiring of `PatternsEvidenceSource` (today `NO_PATTERN_ENGINE`) | **planned** |
 > | `/api/patterns`, `/:id/series`, `/:id/dismiss`; nullable caveat in the published API; Vietnamese and other-kind caveat copy; narration | **planned** |
 > | Timing, trend, frequency, streak detectors | **blocked** (`registry.ts`) |
 >
@@ -369,6 +370,22 @@ keep repeating a claim that the data no longer supports.
 >   the run. The result — `runId`, `startedAt`, `durationMs`, targeted / succeeded / failed / skipped
 >   — is logged at the end; zero users is a valid run.
 > - **Idempotent.** The same night run twice leaves the same patterns; there is no run table.
+>
+> **As built (Phase 5.3C-3) — closed-day finalisation (D15).** Detection reads a closed day only after
+> it has been finalised. `ClosedDayService.finalize(userId, localDate)`
+> (`server/src/modules/summaries/closed-day.service.ts`) is `DayService.refresh` — the reconciliation
+> and summary recompute every write already runs — called for a day the user's calendar has passed:
+> `reconcileDay` turns the day's unmatched plan items from `pending` into `not_logged`, and the summary
+> recomputes every measure from the source tables (`plan_adherence_pct` = happened / resolved, by the
+> Phase 2 rules). No new rule, no single-metric patch. It refuses a day that is not closed with the same
+> rule detection uses (`assertClosedDay`, shared), in the user's timezone.
+>
+> `ClosedDayPatternProcessor.process(userId, day)` is the order: finalise, then
+> `PatternDetectionService.runForUser` — sequentially, so the finalised summary is committed before
+> detection reads it, and a day that cannot be finalised is not detected. The nightly job calls it per
+> user, so each user's day is finalised immediately before it is detected, in the same 02:15 run: there
+> is no separate 02:00 job and therefore no race between the two. Finalising twice is idempotent
+> (reconciliation rewrites the same outcomes; the summary is an upsert).
 >
 > **Known limitation.** A stale row keeps the window of its last detection, and the table does not
 > record which run made it stale. So re-running the *exact* day a pattern was last detected on, after a

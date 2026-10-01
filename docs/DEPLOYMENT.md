@@ -253,8 +253,9 @@ user's failure is logged and skipped, never aborting the batch.
 > **one** job: pattern detection at 02:15 `CRON_TIMEZONE`, each user processed for yesterday in their
 > own timezone (`PATTERN_ENGINE.md` §4). It starts only with `CRON_ENABLED=true` and otherwise logs
 > that and exits 0, so it must run as its own service with that variable set — not inside the API
-> process. The other rows of the table above are not built yet; in particular the 02:00 closed-day
-> summary recompute (D15) does not run, so detection reads the summaries as last written on log.
+> process. The 02:00 closed-day recompute (D15) is part of the same job (Phase 5.3C-3): each user's
+> closed day is finalised immediately before it is detected, so there is no separate 02:00 job and no
+> race between them. The other rows of the table above are not built yet.
 
 ---
 

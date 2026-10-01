@@ -1,10 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { NightlyPatternDetection, type JobLogger } from '../../src/jobs/nightly-pattern-detection.js';
+import { createClosedDayPipeline } from '../../src/jobs/pattern-scheduler.js';
 import { addLocalDays } from '../../src/lib/local-date.js';
-import { PatternDetectionService } from '../../src/modules/patterns/pattern-detection.service.js';
-import { PatternsRepository } from '../../src/modules/patterns/patterns.repository.js';
 import { DailySummariesRepository } from '../../src/modules/summaries/daily-summaries.repository.js';
-import { UsersRepository } from '../../src/modules/users/users.repository.js';
 import { bearer, signTestToken } from '../helpers/app.js';
 import { createDatabaseHarness, hasDatabase, testUserId, type DatabaseHarness } from '../helpers/database.js';
 
@@ -58,16 +56,10 @@ describe.skipIf(!hasDatabase)('nightly pattern detection', () => {
     harness = await createDatabaseHarness();
     const db = harness.database.db;
     summaries = new DailySummariesRepository(db);
-    const users = new UsersRepository(db);
     const logger: JobLogger = { info: () => {}, error: (context) => failures.push(context) };
-    const detection = new PatternDetectionService({
-      users,
-      summaries,
-      patterns: new PatternsRepository(db),
-      logger,
-      now: () => NOW,
-    });
-    job = new NightlyPatternDetection({ users, detection, logger, pageSize: 2 });
+    // The production wiring, on a fixed clock: finalise each user's closed day, then detect.
+    const { users, processor } = createClosedDayPipeline(harness.database, logger, () => NOW);
+    job = new NightlyPatternDetection({ users, processor, logger, pageSize: 2 });
   });
 
   afterAll(async () => {

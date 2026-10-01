@@ -384,6 +384,11 @@ rows (`insights.repository.ts`). Evidence for these outputs is the grouped count
   `DayService.refresh`, run once per release that changes derivation (e.g. D2/D3, D1), with approval;
   it also fills the `metrics` keys absent from rows written before 5.1.
 
+> **As built (Phase 5.3C-3).** The nightly finalisation is `ClosedDayService.finalize` — `DayService.refresh`
+> on a closed day — run by the nightly job for each user immediately before that user's detection
+> (`ClosedDayPatternProcessor`), in the same run at 02:15 `CRON_TIMEZONE` rather than as a separate 02:00
+> job, so detection can never read a day before it is final.
+
 **Not decided here:** a plan edited for a past, already-closed day after the nightly run stays stale
 until the next backfill or write for that day. Making plan writes trigger a recompute is an optional
 Phase 5.1 amendment, not required by any document.
