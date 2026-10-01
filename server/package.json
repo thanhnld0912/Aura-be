@@ -36,7 +36,7 @@
     "@google/genai": "^2.22.0",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
-    "fastify": "^5.12.3",
+    "fastify": "^5.12.5",
     "jose": "^6.2.12",
     "postgres": "^3.4.9",
     "sharp": "^0.35.4",
