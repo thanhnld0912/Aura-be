@@ -137,3 +137,14 @@ export const aiStatusEnum = pgEnum('ai_status', [
   'refused',
   'blocked',
 ]);
+
+/**
+ * Pattern Engine (PATTERN_ENGINE.md, DATABASE_DESIGN.md §3.7). The kinds and directions are
+ * the ones `insights/pattern-evidence.ts` already defines (D7) — a test holds the two lists
+ * equal. The status is the **persisted** lifecycle only: there is no `candidate` (nothing
+ * below the gates is stored), no `shown` and no `deleted` (an expired stale pattern is
+ * removed, not marked).
+ */
+export const patternKindEnum = pgEnum('pattern_kind', ['correlation', 'trend', 'timing', 'frequency', 'streak']);
+export const patternDirectionEnum = pgEnum('pattern_direction', ['positive', 'negative', 'none']);
+export const patternStatusEnum = pgEnum('pattern_status', ['active', 'stale', 'dismissed']);

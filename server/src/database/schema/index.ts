@@ -21,3 +21,4 @@ export * from './habits.js';
 export * from './summaries.js';
 export * from './aliases.js';
 export * from './ai.js';
+export * from './patterns.js';

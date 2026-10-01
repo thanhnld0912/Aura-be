@@ -269,6 +269,26 @@ candidate ──(passes gates)──> active ──(narrated by Claude)──> s
 Recomputed nightly. A pattern that stops holding goes `stale` and disappears — AURA must not
 keep repeating a claim that the data no longer supports.
 
+> **As built (Phase 5.3A) — persistence only.** The `patterns` table (`DATABASE_DESIGN.md` §3.7)
+> holds the current set of patterns, one row per `(user_id, key)`; the key is the detector's own.
+> `toDetectedPattern` (`server/src/patterns/persistence.ts`) maps a `DetectorResult` to the stored
+> facts — a copy, plus `detector_version` from the registry — and refuses a result that breaks
+> the contract (a family not allowed to emit, an unapproved pair or non-canonical key, a strength
+> outside 0..1, evidence that does not match `sampleSize` or the window). **Strength is a
+> magnitude in 0..1; the sign is `direction`.** `evidence` is the detector's points in jsonb.
+>
+> The persisted states are `active`, `stale` and `dismissed`; a `candidate` is never stored,
+> because only results that pass every gate leave the detector layer. Transitions
+> (`lifecycle.ts`, applied by `PatternsRepository`): a detection creates an active row, refreshes
+> an active one (`last_detected_at` moves, `first_detected_at` and `status_changed_at` do not),
+> and reactivates a stale one; a dismissed pattern ignores detections for 60 days after
+> dismissal and is reactivated by one after that; a stale pattern is deleted 30 days after it
+> went stale. A detection over an older window than the stored one changes nothing.
+>
+> Not built yet: the nightly run that calls these (and marks undetected patterns stale), the
+> retention job, ranking and `score`, caveats, the `PatternEvidenceSource` adapter, the
+> `/api/patterns` endpoints, and narration.
+
 `ai_feedback.rating = 'wrong'` on a pattern-derived insight forces immediate recomputation and
 lowers that pattern's ranking. **User contradiction is the strongest available signal that a
 correlation is spurious**, and it is treated as such.

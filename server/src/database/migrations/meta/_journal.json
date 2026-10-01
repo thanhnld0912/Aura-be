@@ -71,6 +71,20 @@
       "when": 1790696531307,
       "tag": "0009_summary_measures_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790817470972,
+      "tag": "0010_patterns",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790817478904,
+      "tag": "0011_patterns_rls",
+      "breakpoints": true
     }
   ]
 }

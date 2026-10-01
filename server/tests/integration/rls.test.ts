@@ -69,6 +69,17 @@ describe.skipIf(!hasDatabase)('row level security', () => {
         insert into ai_runs (user_id, purpose, provider, model, status, latency_ms, attempt)
         values (${userId}, 'meal_parse', 'anthropic', 'test-model', 'ok', 12, 1)`;
     }
+
+    // `patterns` is written only by the engine, through the owning connection.
+    for (const userId of [userA, userB]) {
+      await harness.sql`
+        insert into patterns (user_id, key, kind, subject_metric, object_metric, direction, strength, p_value,
+          sample_size, coverage, window_start, window_end, window_days, evidence, detector_version,
+          first_detected_at, last_detected_at, status_changed_at)
+        values (${userId}, 'correlation:mood_score:plan_adherence_pct', 'correlation', 'mood_score',
+          'plan_adherence_pct', 'positive', 0.6, 0.01, 20, 0.8, '2026-08-01', '2026-08-30', 30,
+          '{"points":[]}', 'correlation@1', now(), now(), now())`;
+    }
   });
 
   it('the shim resolves auth.uid() from the connection claims', async () => {
@@ -88,6 +99,7 @@ describe.skipIf(!hasDatabase)('row level security', () => {
         planItems: await tx`select count(*)::int as c from plan_items`,
         summaries: await tx`select count(*)::int as c from daily_summaries`,
         habits: await tx`select count(*)::int as c from habits`,
+        patterns: await tx`select count(*)::int as c from patterns`,
       }));
 
       for (const [table, rows] of Object.entries(counts)) {
@@ -252,6 +264,49 @@ describe.skipIf(!hasDatabase)('row level security', () => {
     });
   });
 
+  describe('patterns — readable by their owner, writable by nobody', () => {
+    it('lets user A read only their own patterns, even when naming user B', async () => {
+      const own = await asRlsUser(harness.sql, userA, (tx) => tx`select user_id from patterns`);
+      expect(own.map((r) => r['user_id'])).toEqual([userA]);
+
+      const theirs = await asRlsUser(
+        harness.sql,
+        userA,
+        (tx) => tx`select * from patterns where user_id = ${userB}`,
+      );
+      expect(theirs).toHaveLength(0);
+    });
+
+    it('lets user A neither update nor delete any pattern — their own included', async () => {
+      await asRlsUser(harness.sql, userA, async (tx) => {
+        await tx`update patterns set strength = 1, status = 'dismissed'`;
+        await tx`delete from patterns`;
+      });
+
+      const rows = await harness.sql`select user_id, strength, status from patterns order by user_id`;
+      expect(rows).toHaveLength(2);
+      for (const row of rows) expect(row).toMatchObject({ strength: 0.6, status: 'active' });
+    });
+
+    it('lets user A insert no pattern, for themselves or for user B', async () => {
+      for (const owner of [userA, userB]) {
+        await expect(
+          asRlsUser(
+            harness.sql,
+            userA,
+            (tx) => tx`
+              insert into patterns (user_id, key, kind, subject_metric, object_metric, direction, strength, p_value,
+                sample_size, coverage, window_start, window_end, window_days, evidence, detector_version,
+                first_detected_at, last_detected_at, status_changed_at)
+              values (${owner}, 'correlation:logging_gap_hours:meals_logged', 'correlation', 'logging_gap_hours',
+                'meals_logged', 'negative', 0.99, 0.0001, 30, 1, '2026-08-01', '2026-08-30', 30,
+                '{"points":[]}', 'correlation@1', now(), now(), now())`,
+          ),
+        ).rejects.toThrow(/row-level security/i);
+      }
+    });
+  });
+
   describe('user B signed in', () => {
     it('sees only their own events — the policy is symmetric', async () => {
       const rows = await asRlsUser(harness.sql, userB, (tx) => tx`select title from daily_events`);
@@ -308,8 +363,8 @@ describe.skipIf(!hasDatabase)('row level security', () => {
 
       const withoutRls = rows.filter((row) => row['enabled'] !== true).map((r) => r['table_name']);
       expect(withoutRls).toEqual([]);
-      // 15 from Phase 2, user_food_aliases from Phase 3, ai_runs from Phase 4.
-      expect(rows.length).toBe(17);
+      // 15 from Phase 2, user_food_aliases from Phase 3, ai_runs from Phase 4, patterns from Phase 5.
+      expect(rows.length).toBe(18);
     });
 
     it('has a policy on every table that has RLS enabled', async () => {

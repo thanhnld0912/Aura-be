@@ -493,6 +493,55 @@ chart and the sentence can never disagree.
 `status='candidate'` until it clears the significance thresholds; only `active` patterns are
 narrated or shown.
 
+> **As built (Phase 5.3A)** — migrations `0010_patterns` (table) and `0011_patterns_rls`
+> (policy); schema `server/src/database/schema/patterns.ts`; writer `PatternsRepository`
+> (`server/src/modules/patterns/`). Supersedes the ERD sketch above where they differ.
+>
+> | Column | Type | Notes |
+> |---|---|---|
+> | `id` | uuid PK | |
+> | `user_id` | uuid FK → `users` | `ON DELETE CASCADE` |
+> | `key` | text | the detector's own key (`correlationKey`, `timingKey`) |
+> | `kind` | `pattern_kind` enum | correlation, trend, timing, frequency, streak (D7) |
+> | `subject_metric`, `object_metric` | text, object nullable | object required for correlation and timing |
+> | `direction` | `pattern_direction` enum | positive, negative, none — **the sign lives here** |
+> | `strength` | double precision | **magnitude, 0..1** (D6): \|r\| for a correlation, \|rate difference\| for timing |
+> | `p_value` | double precision, nullable | null exactly for frequency/streak (D7) |
+> | `sample_size` | integer | ≥ 1 |
+> | `coverage` | double precision | 0..1, as defined in `PATTERN_ENGINE.md` §2.2; there is no `support` (D6) |
+> | `window_start`, `window_end`, `window_days` | date, date, integer | metadata, not identity; `window_end − window_start + 1 = window_days` |
+> | `evidence` | jsonb | `{ points: [{ localDate, subject, object }] }` — the detector's points, as returned |
+> | `detector_version` | text | `DETECTOR_REGISTRY[family].version`, e.g. `correlation@1` |
+> | `status` | `pattern_status` enum | `active`, `stale`, `dismissed` — no `candidate`, `shown` or `deleted` |
+> | `first_detected_at`, `last_detected_at`, `status_changed_at` | timestamptz | see the lifecycle below |
+>
+> **Identity** is `UNIQUE (user_id, key)` (`uq_patterns_user_key`). A pattern re-detected over
+> a later window updates its row; the window is not part of the key.
+>
+> **Current state, not history.** A row is the latest evidence for a claim the data still
+> supports; re-detection overwrites it, and `detector_version` plus the window say what produced
+> it. There is no evidence table and no audit history.
+>
+> **Lifecycle** (`server/src/patterns/lifecycle.ts`; `status_changed_at` is the clock):
+> new → `active` (all three timestamps = now); active re-detected → `last_detected_at` and the
+> measured fields move, `status_changed_at` does not; active not detected → `stale`; stale
+> re-detected → `active`; active or stale dismissed → `dismissed`; dismissed re-detected within
+> 60 days → untouched, after 60 days → `active`; stale for 30 days → **row deleted** (there is no
+> deleted state). `first_detected_at` never moves. A detection whose window ends before the
+> stored one is ignored, so an older run cannot overwrite a newer one.
+>
+> **Not stored:** `score`, rank and actionability (computed when serving), `caveat` and metric
+> labels (deterministic text by kind and locale), `narrative` (arrives with narration).
+>
+> **Checks:** strength, coverage and p-value in 0..1; sample ≥ 1; window length; p-value null
+> iff frequency/streak; object metric for correlation/timing; key starts with `<kind>:`;
+> `first_detected_at ≤ last_detected_at`.
+>
+> **Indexes:** the unique `(user_id, key)` index also serves every per-user read (a user has at
+> most one row per approved hypothesis, a handful). `idx_patterns_stale (status_changed_at)
+> WHERE status = 'stale'` serves the cross-user retention sweep. No index for ranking: it is
+> computed in the application over those few rows.
+
 ### 3.8 `ai_runs` — cost and reliability ledger
 
 Every provider call writes a row: tokens, cost, latency, and whether the response passed Zod.
@@ -636,6 +685,7 @@ CREATE UNIQUE INDEX idx_daily_sum   ON daily_summaries (user_id, local_date);
 CREATE UNIQUE INDEX idx_weekly_sum  ON weekly_summaries (user_id, week_start);
 
 -- patterns & insights
+-- as built (0010): uq_patterns_user_key (user_id, key) and idx_patterns_stale — see §3.7
 CREATE UNIQUE INDEX idx_patterns_key ON patterns (user_id, key, window_days);
 CREATE INDEX idx_patterns_active     ON patterns (user_id, status, strength DESC)
                                      WHERE status = 'active';
@@ -663,6 +713,8 @@ ALTER TABLE meal_items
   ADD CONSTRAINT chk_quantity    CHECK (quantity > 0),
   ADD CONSTRAINT chk_nonneg_kcal CHECK (kcal IS NULL OR kcal >= 0);
 
+-- as built (0010): strength is a magnitude, chk_pattern_strength CHECK (strength BETWEEN 0 AND 1),
+-- and chk_pattern_sample requires sample_size >= 1 — see §3.7
 ALTER TABLE patterns
   ADD CONSTRAINT chk_strength CHECK (strength BETWEEN -1 AND 1),
   ADD CONSTRAINT chk_sample   CHECK (sample_size >= 0);
@@ -748,6 +800,23 @@ the API's connection bypasses these policies. It connects as a non-owner role wi
 request — and asserts that user A cannot read, update, delete or insert user B's rows in
 either direction, that an unauthenticated connection sees nothing at all, and that every
 table has RLS enabled with at least one policy.
+
+### `patterns` (Phase 5.3A, `0011_patterns_rls`)
+
+RLS is enabled with **one policy, `own_patterns_read`: `FOR SELECT USING (user_id = auth.uid())`,
+and no write policy.** Unlike every other owned table, a user never writes a pattern — it is a
+statistical claim the engine makes — so through PostgREST a signed-in user can read their own
+patterns and nothing else, and INSERT, UPDATE and DELETE are denied for every row, their own
+included (an UPDATE or DELETE matches no row; an INSERT fails the policy). Without that, a leaked
+anon key and a user's own JWT could plant a "pattern" that later reaches the weekly story.
+
+This does not protect the backend's access, and is not meant to: the backend connects as the
+table owner (and on Supabase as `service_role`, which holds `BYPASSRLS`), `FORCE ROW LEVEL
+SECURITY` is not set, so its queries are not filtered by the policy at all. `PatternsRepository`
+scopes every per-user query to the `userId` it is given — from the verified token in the API, or
+from the engine's own iteration over users — and dismissal answers "not found" alike for a
+missing id and another user's. `rls.test.ts` covers the policy; `pattern-persistence.test.ts`
+covers the repository scoping.
 
 ---
 

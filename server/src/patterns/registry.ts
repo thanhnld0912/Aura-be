@@ -33,11 +33,18 @@ export interface DetectorRegistration {
   blockedBy: readonly string[];
   /** Where its gates are specified. */
   spec: string;
+  /**
+   * Stored with every pattern the family produces (`patterns.detector_version`). Bump it
+   * when the family's gates, window, pairs or metric definitions change, so a persisted
+   * pattern says which definition produced it.
+   */
+  version: string;
 }
 
 export const DETECTOR_REGISTRY: Readonly<Record<DetectorFamily, DetectorRegistration>> = {
   correlation: {
     family: 'correlation',
+    version: 'correlation@1',
     kinds: ['correlation'],
     emits: true,
     blockedBy: [],
@@ -45,6 +52,7 @@ export const DETECTOR_REGISTRY: Readonly<Record<DetectorFamily, DetectorRegistra
   },
   timing: {
     family: 'timing',
+    version: 'timing@1',
     kinds: ['timing'],
     emits: false,
     blockedBy: [
@@ -55,6 +63,7 @@ export const DETECTOR_REGISTRY: Readonly<Record<DetectorFamily, DetectorRegistra
   },
   trend: {
     family: 'trend',
+    version: 'trend@1',
     kinds: ['trend'],
     emits: false,
     blockedBy: [
@@ -65,6 +74,7 @@ export const DETECTOR_REGISTRY: Readonly<Record<DetectorFamily, DetectorRegistra
   },
   frequency_streak: {
     family: 'frequency_streak',
+    version: 'frequency_streak@1',
     kinds: ['frequency', 'streak'],
     emits: false,
     blockedBy: ['D16 — no emission threshold (minimum streak, repetitions or split) is defined'],
