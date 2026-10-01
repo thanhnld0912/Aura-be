@@ -317,7 +317,8 @@ keep repeating a claim that the data no longer supports.
 > |---|---|
 > | Persistence, lifecycle, ranking, evidence source, caveat catalog (English correlation) | **implemented** |
 > | Detection run for one user and one closed day, with stale reconciliation (5.3C-1, below) | **implemented** |
-> | Scheduler (nightly trigger over users, D11), backfill, retention job, production wiring of `PatternsEvidenceSource` (today `NO_PATTERN_ENGINE`) | **planned** |
+> | Nightly detection over all active users (5.3C-2, below) — off until `CRON_ENABLED=true` | **implemented** |
+> | Backfill, retention job, the 02:00 closed-day summary recompute (D15), production wiring of `PatternsEvidenceSource` (today `NO_PATTERN_ENGINE`) | **planned** |
 > | `/api/patterns`, `/:id/series`, `/:id/dismiss`; nullable caveat in the published API; Vietnamese and other-kind caveat copy; narration | **planned** |
 > | Timing, trend, frequency, streak detectors | **blocked** (`registry.ts`) |
 >
@@ -347,6 +348,27 @@ keep repeating a claim that the data no longer supports.
 >
 > Running the same user and day twice leaves one row per key: `(user_id, key)` and the lifecycle make
 > it idempotent, without a run ledger.
+>
+> **As built (Phase 5.3C-2) — nightly detection.** One global trigger (D11), in its own process:
+> `node dist/jobs/scheduler.js` (`npm run start:scheduler`), started only with `CRON_ENABLED=true`.
+>
+> - **When.** `DailyTrigger` (`server/src/jobs/daily-trigger.ts`) fires once per local date at
+>   **02:15 in `CRON_TIMEZONE`** (DEPLOYMENT.md §6), from a one-minute tick — no cron library. A process
+>   started after 02:15 does not fire for that day; a run still in progress is never overlapped;
+>   SIGINT/SIGTERM stop the tick, wait for the run, and close the database.
+> - **Who and which day.** `NightlyPatternDetection` (`server/src/jobs/nightly-pattern-detection.ts`)
+>   pages through active (not soft-deleted) users, id and timezone only
+>   (`UsersRepository.listActiveTimezones`, 500 per page), and calls
+>   `PatternDetectionService.runForUser(userId, closedDayFor(user.timezone, firedAt))` — yesterday in
+>   the **user's own** timezone, from the one instant the run fired at. Never today, never a later day.
+> - **How.** Sequentially, one user at a time: flat database load, and an overlapping run is
+>   serialised per user by the service's advisory lock. Everything about detection stays in the service.
+> - **Failures.** A user whose run throws (including an unreadable stored timezone) is counted as
+>   failed and logged with run id, user id, target date and the error's name and message; the run
+>   continues. A user no longer active at their turn is skipped. Only a failure to list users fails
+>   the run. The result — `runId`, `startedAt`, `durationMs`, targeted / succeeded / failed / skipped
+>   — is logged at the end; zero users is a valid run.
+> - **Idempotent.** The same night run twice leaves the same patterns; there is no run table.
 >
 > **Known limitation.** A stale row keeps the window of its last detection, and the table does not
 > record which run made it stale. So re-running the *exact* day a pattern was last detected on, after a

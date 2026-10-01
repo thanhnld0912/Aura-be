@@ -1,4 +1,4 @@
-import { and, eq, getTableColumns, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, getTableColumns, gt, isNull, sql } from 'drizzle-orm';
 import type { Db } from '../../database/client.js';
 import { SYSTEM_HABITS } from '../../database/seeds/system-habits.js';
 import { habits, userPreferences, users } from '../../database/schema/index.js';
@@ -110,6 +110,21 @@ export class UsersRepository {
     return this.db.query.users.findFirst({
       where: and(eq(users.id, userId), isNull(users.deletedAt)),
     });
+  }
+
+  /**
+   * One page of active users for a background job — id and timezone only, nothing else
+   * about the person. Keyset-paged by id (`afterId` exclusive), so a job walks every user
+   * in bounded reads without holding the whole population in memory. Same "active" as
+   * `findActiveById`: not soft-deleted.
+   */
+  async listActiveTimezones(afterId: string | null, limit: number): Promise<Array<{ id: string; timezone: string }>> {
+    return this.db
+      .select({ id: users.id, timezone: users.timezone })
+      .from(users)
+      .where(afterId === null ? isNull(users.deletedAt) : and(isNull(users.deletedAt), gt(users.id, afterId)))
+      .orderBy(asc(users.id))
+      .limit(limit);
   }
 
   /**

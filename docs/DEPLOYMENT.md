@@ -249,6 +249,13 @@ Sun 05:00                purge soft-deleted rows past 30 days
 Same container image, `node dist/jobs/scheduler.js` entrypoint. Per-user error isolation: one
 user's failure is logged and skipped, never aborting the batch.
 
+> **As built (Phase 5.3C-2).** `dist/jobs/scheduler.js` (`npm run start:scheduler`) exists and runs
+> **one** job: pattern detection at 02:15 `CRON_TIMEZONE`, each user processed for yesterday in their
+> own timezone (`PATTERN_ENGINE.md` §4). It starts only with `CRON_ENABLED=true` and otherwise logs
+> that and exits 0, so it must run as its own service with that variable set — not inside the API
+> process. The other rows of the table above are not built yet; in particular the 02:00 closed-day
+> summary recompute (D15) does not run, so detection reads the summaries as last written on log.
+
 ---
 
 ## 7. Observability
