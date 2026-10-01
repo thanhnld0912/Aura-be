@@ -1,6 +1,6 @@
 import { NotFoundError } from '../../lib/errors.js';
 import { todayIn } from '../../lib/local-date.js';
-import { decideAbsence } from '../../patterns/lifecycle.js';
+import { decideAbsence, isHistoricalRun } from '../../patterns/lifecycle.js';
 import { extractDailyFeatures, type DailyFeatures } from '../../patterns/metrics.js';
 import { toDetectedPattern } from '../../patterns/persistence.js';
 import {
@@ -44,6 +44,15 @@ import type { DetectionOutcome, PatternsRepository } from './patterns.repository
  * Running the same user and date twice leaves one row per key — `(user_id, key)` and the
  * lifecycle are what make it idempotent; there is no run ledger.
  *
+ * ## Historical runs (D17)
+ *
+ * The user's watermark (`pattern_watermarks.evaluated_through`) is the latest day an
+ * authoritative run completed. A run for an **earlier** day is historical: it detects, but
+ * records no lifecycle change at all — no creation, no re-detection, no reactivation, no
+ * staleness — so older evidence can never override what a newer run decided. A run on or
+ * after the watermark is authoritative and moves the watermark to its day. Re-running the
+ * watermark's own day is authoritative too: that is how a corrected day is re-evaluated.
+ *
  * It reads the summaries as they are. Finalising a closed day first is the caller's step
  * (`ClosedDayPatternProcessor`).
  *
@@ -70,6 +79,11 @@ export interface DetectionRunResult {
   detectionsOutdated: number;
   /** Active patterns this run did not return, now stale. */
   patternsStaled: number;
+  /**
+   * The run's day was before the user's watermark: nothing was written, and every detection
+   * is counted in `detectionsOutdated`.
+   */
+  historical: boolean;
 }
 
 /** The structured logger's two calls this service uses (pino / Fastify's logger). */
@@ -135,9 +149,16 @@ export class PatternDetectionService {
         detectionsSuppressed: 0,
         detectionsOutdated: 0,
         patternsStaled: 0,
+        historical: false,
       };
 
       await this.deps.patterns.withUserLock(userId, async (repository) => {
+        if (isHistoricalRun(targetDate, await repository.evaluatedThrough(userId))) {
+          result.historical = true;
+          result.detectionsOutdated = detected.length;
+          return;
+        }
+
         for (const detection of detected) {
           const { outcome } = await repository.recordDetection(userId, detection, now);
           (result[OUTCOME_FIELD[outcome]] as number) += 1;
@@ -149,6 +170,8 @@ export class PatternDetectionService {
           if (decideAbsence(pattern, targetDate) === 'outdated') continue;
           if (await repository.markStale(userId, pattern.key, now)) result.patternsStaled += 1;
         }
+
+        await repository.advanceEvaluatedThrough(userId, targetDate, now);
       });
 
       this.deps.logger.info(
@@ -162,6 +185,7 @@ export class PatternDetectionService {
           detectionsSuppressed: result.detectionsSuppressed,
           detectionsOutdated: result.detectionsOutdated,
           patternsStaled: result.patternsStaled,
+          historical: result.historical,
         },
         'pattern detection run complete',
       );

@@ -126,3 +126,23 @@ export const patterns = pgTable(
 export const patternsRelations = relations(patterns, ({ one }) => ({
   user: one(users, { fields: [patterns.userId], references: [users.id] }),
 }));
+
+/**
+ * `pattern_watermarks` — the latest closed day the engine has evaluated for a user
+ * (PATTERN_ENGINE_DECISIONS.md D17). One row per user, overwritten, never a history.
+ *
+ * It exists because `patterns` cannot hold this fact: a pattern row records its own last
+ * detection window, but a run that **did not** find a pattern — the run that made it stale,
+ * or a run for a user with no row for that key at all — leaves no date anywhere. Without it,
+ * re-running an older day re-detects from older evidence and overrides what a newer run
+ * decided. With it, a run for a day before the watermark is historical and writes no
+ * lifecycle change; a run on or after it is authoritative and advances it.
+ */
+export const patternWatermarks = pgTable('pattern_watermarks', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  /** The latest local day an authoritative detection run completed for this user. */
+  evaluatedThrough: date('evaluated_through').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+});

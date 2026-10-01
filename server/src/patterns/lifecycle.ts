@@ -71,6 +71,15 @@ export function decideAbsence(existing: LifecycleState, runWindowEnd: string): '
   return runWindowEnd < existing.windowEnd ? 'outdated' : 'stale';
 }
 
+/**
+ * Whether a run for `runDate` is historical for a user whose authoritative runs have reached
+ * `evaluatedThrough` (D17): strictly earlier days are; the watermark's own day and later are
+ * not. A user with no watermark has had no authoritative run, so nothing is historical.
+ */
+export function isHistoricalRun(runDate: string, evaluatedThrough: string | null): boolean {
+  return evaluatedThrough !== null && runDate < evaluatedThrough;
+}
+
 /** The moment before which a stale pattern has passed its retention and may be deleted. */
 export function staleRetentionCutoff(now: Date): Date {
   return new Date(now.getTime() - STALE_RETENTION_DAYS * DAY_MS);

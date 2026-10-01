@@ -319,7 +319,8 @@ keep repeating a claim that the data no longer supports.
 > | Detection run for one user and one closed day, with stale reconciliation (5.3C-1, below) | **implemented** |
 > | Nightly detection over all active users (5.3C-2, below) — off until `CRON_ENABLED=true` | **implemented** |
 > | Closed-day finalisation before detection (5.3C-3, below) | **implemented** |
-> | Backfill, retention job, production wiring of `PatternsEvidenceSource` (today `NO_PATTERN_ENGINE`) | **planned** |
+> | Historical backfill with the per-user watermark (5.3C-3, below, D17) | **implemented** |
+> | Retention job, production wiring of `PatternsEvidenceSource` (today `NO_PATTERN_ENGINE`) | **planned** |
 > | `/api/patterns`, `/:id/series`, `/:id/dismiss`; nullable caveat in the published API; Vietnamese and other-kind caveat copy; narration | **planned** |
 > | Timing, trend, frequency, streak detectors | **blocked** (`registry.ts`) |
 >
@@ -387,11 +388,24 @@ keep repeating a claim that the data no longer supports.
 > is no separate 02:00 job and therefore no race between the two. Finalising twice is idempotent
 > (reconciliation rewrites the same outcomes; the summary is an upsert).
 >
-> **Known limitation.** A stale row keeps the window of its last detection, and the table does not
-> record which run made it stale. So re-running the *exact* day a pattern was last detected on, after a
-> later run has staled it, re-detects it from that older window and reactivates it. Only a manual
-> re-run of a past day can do this (the scheduler will run the latest closed day); closing it needs the
-> staling run's date stored with the row — a schema change, deferred to the backfill work.
+> **As built (Phase 5.3C-3) — historical runs and backfill (D17).** The 5.3C-1 limitation — re-running
+> the day a pattern was last found on, after a newer run staled it, reactivated it from older evidence —
+> is closed by a **per-user watermark** (`pattern_watermarks.evaluated_through`, the latest day an
+> authoritative run completed). `PatternDetectionService` reads it inside the run's transaction and
+> lock: a run for an earlier day is `historical` and writes no lifecycle change at all (its detections
+> are counted as outdated); a run on or after it is authoritative and advances it. So an older day can
+> neither reactivate, re-detect, stale nor **create** a pattern — the last needs the per-user date,
+> since a newer run that found nothing leaves no row to carry one.
+>
+> **Backfill** (`server/src/jobs/pattern-backfill.ts`; CLI `npm run patterns:backfill -- --from
+> YYYY-MM-DD [--to YYYY-MM-DD] [--user <uuid> …]`, built image `npm run patterns:backfill:dist`) runs
+> only when invoked. The range is local calendar dates in each user's timezone; `--to` defaults to
+> each user's latest closed day, and days not yet closed are skipped. Each user's days run oldest first
+> through `ClosedDayPatternProcessor` (finalise, then detect). A failing day is recorded with user,
+> date and error and the backfill continues; successful days are committed, so a re-run converges.
+> Exit code 0 when nothing failed, 1 otherwise, 2 for bad arguments. A range that ends before the
+> watermark finalises those days without changing any pattern; to recompute current patterns from
+> corrected history, let it reach the latest closed day.
 
 `ai_feedback.rating = 'wrong'` on a pattern-derived insight forces immediate recomputation and
 lowers that pattern's ranking. **User contradiction is the strongest available signal that a

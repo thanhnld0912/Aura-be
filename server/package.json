@@ -12,6 +12,8 @@
     "build": "tsc -p tsconfig.build.json && node scripts/copy-migrations.mjs",
     "start": "node dist/index.js",
     "start:scheduler": "node dist/jobs/scheduler.js",
+    "patterns:backfill": "tsx src/jobs/backfill.ts",
+    "patterns:backfill:dist": "node dist/jobs/backfill.js",
     "typecheck": "tsc --noEmit",
     "check:lockfile": "node scripts/check-lockfile.mjs",
     "test": "vitest run",

@@ -85,6 +85,27 @@
       "when": 1790817478904,
       "tag": "0011_patterns_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790843968979,
+      "tag": "0012_pattern_watermarks",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790843971053,
+      "tag": "0013_pattern_watermarks_rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790843982524,
+      "tag": "0014_pattern_watermarks_backfill",
+      "breakpoints": true
     }
   ]
 }

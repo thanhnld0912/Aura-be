@@ -256,6 +256,12 @@ user's failure is logged and skipped, never aborting the batch.
 > process. The 02:00 closed-day recompute (D15) is part of the same job (Phase 5.3C-3): each user's
 > closed day is finalised immediately before it is detected, so there is no separate 02:00 job and no
 > race between them. The other rows of the table above are not built yet.
+>
+> **Backfill** (Phase 5.3C-3) is an operator command, never scheduled:
+> `npm run patterns:backfill:dist -- --from YYYY-MM-DD [--to YYYY-MM-DD] [--user <uuid> …]`
+> (`node dist/jobs/backfill.js`). It finalises and detects each closed day of the range per user,
+> oldest first, and exits non-zero if any day failed (`PATTERN_ENGINE.md` §4, D17). Run it with
+> approval, like a migration.
 
 ---
 

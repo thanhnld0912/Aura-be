@@ -99,7 +99,9 @@ describe.skipIf(!hasDatabase)('closed-day finalisation', () => {
     await harness.app.inject({ method: 'GET', url: '/api/users/me', headers: bearer(tokenA) });
   });
 
-  describe('finalising a closed day', () => {
+  // Each test writes a day through the API and runs finalisation and detection, sometimes twice:
+  // well under a second normally, but several on a loaded machine, so more room than five seconds.
+  describe('finalising a closed day', { timeout: 30_000 }, () => {
     const DAY = '2026-03-10';
 
     it('turns pending items into not_logged and recomputes the summary by the existing rules', async () => {

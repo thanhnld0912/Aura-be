@@ -210,8 +210,75 @@ describe.skipIf(!hasDatabase)('pattern detection run', () => {
     const before = await harness.sql`select * from patterns order by key`;
 
     const older = await service.runForUser(userA, END_1);
-    expect(older).toMatchObject({ detectionsEmitted: 2, detectionsOutdated: 2, patternsStaled: 0 });
+    expect(older).toMatchObject({ detectionsEmitted: 2, detectionsOutdated: 2, patternsStaled: 0, historical: true });
     expect(await harness.sql`select * from patterns order by key`).toEqual(before);
+  });
+
+  describe('historical re-runs (D17)', () => {
+    const END_3 = '2026-05-29';
+    const watermark = async (userId: string) =>
+      (await harness.sql`select evaluated_through::text as d from pattern_watermarks where user_id = ${userId}`)[0]?.['d'];
+
+    it('records the latest authoritative day, and never moves it back', async () => {
+      await seed(userA, MARCH, 60, { gap: 'related', mood: 'related' });
+      await service.runForUser(userA, END_2);
+      expect(await watermark(userA)).toBe(END_2);
+      await service.runForUser(userA, END_1);
+      expect(await watermark(userA)).toBe(END_2);
+    });
+
+    it('keeps a pattern a newer day staled stale when the older day it was found on runs again', async () => {
+      // Example A: found on day 30, absent on the newer day, older day re-run.
+      await seed(userA, MARCH, 30, { gap: 'related', mood: 'related' });
+      await seed(userA, addLocalDays(END_1, 1), 30, { gap: 'flat', mood: 'related' });
+      await service.runForUser(userA, END_1);
+      await service.runForUser(userA, END_2);
+      expect((await statuses(userA))[GAP_MEALS]).toBe('stale');
+      const before = await harness.sql`select * from patterns order by key`;
+
+      const rerun = await service.runForUser(userA, END_1);
+
+      expect(rerun).toMatchObject({ historical: true, patternsReactivated: 0, detectionsOutdated: 2 });
+      expect(await harness.sql`select * from patterns order by key`).toEqual(before);
+    });
+
+    it('lets a newer day reactivate it', async () => {
+      // Example B: found, staled by a newer day, found again on a day newer still.
+      await seed(userA, MARCH, 30, { gap: 'related', mood: 'related' });
+      await seed(userA, addLocalDays(END_1, 1), 30, { gap: 'flat', mood: 'related' });
+      await seed(userA, addLocalDays(END_2, 1), 30, { gap: 'related', mood: 'related' });
+      await service.runForUser(userA, END_1);
+      await service.runForUser(userA, END_2);
+
+      const newer = await service.runForUser(userA, END_3);
+
+      expect(newer).toMatchObject({ historical: false, patternsReactivated: 1 });
+      expect((await statuses(userA))[GAP_MEALS]).toBe('active');
+      expect(await watermark(userA)).toBe(END_3);
+    });
+
+    it('creates nothing from an older day, even for a key with no row', async () => {
+      // A newer day found nothing for the gap pair; the older day's evidence must not bring it in.
+      await seed(userA, MARCH, 30, { gap: 'related', mood: 'related' });
+      await seed(userA, addLocalDays(END_1, 1), 30, { gap: 'flat', mood: 'flat' });
+      await service.runForUser(userA, END_2);
+      expect(await count()).toBe(0);
+
+      const older = await service.runForUser(userA, END_1);
+
+      expect(older).toMatchObject({ historical: true, detectionsEmitted: 2, patternsCreated: 0 });
+      expect(await count()).toBe(0);
+    });
+
+    it('keeps each user own watermark', async () => {
+      await seed(userA, MARCH, 60, { gap: 'related', mood: 'related' });
+      await seed(userB, MARCH, 30, { gap: 'related', mood: 'related' });
+      await service.runForUser(userA, END_2);
+      // B has no watermark yet, so B's older day is authoritative for B.
+      const b = await service.runForUser(userB, END_1);
+      expect(b).toMatchObject({ historical: false, patternsCreated: 2 });
+      expect([await watermark(userA), await watermark(userB)]).toEqual([END_2, END_1]);
+    });
   });
 
   it('refuses the user local today without writing anything', async () => {

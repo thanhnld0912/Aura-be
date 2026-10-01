@@ -541,6 +541,15 @@ narrated or shown.
 > most one row per approved hypothesis, a handful). `idx_patterns_stale (status_changed_at)
 > WHERE status = 'stale'` serves the cross-user retention sweep. No index for ranking: it is
 > computed in the application over those few rows.
+>
+> **`pattern_watermarks`** (Phase 5.3C-3: `0012` table, `0013` RLS, `0014` initial rows;
+> `PATTERN_ENGINE_DECISIONS.md` D17). One row per user: `user_id` (uuid, PK, FK → `users`
+> `ON DELETE CASCADE`), `evaluated_through` (date — the latest local day an authoritative detection
+> run completed), `updated_at` (timestamptz). Written only by `PatternsRepository`, inside the
+> detection run's transaction, and only ever forward (`greatest`). A run for a day before it is
+> historical and changes no pattern. Not a run log: overwritten, never appended. `0014` seeds it for
+> users who already had patterns from their newest `window_end` (a lower bound); users without
+> patterns get no row, meaning "no authoritative run recorded".
 
 ### 3.8 `ai_runs` — cost and reliability ledger
 
@@ -817,6 +826,13 @@ scopes every per-user query to the `userId` it is given — from the verified to
 from the engine's own iteration over users — and dismissal answers "not found" alike for a
 missing id and another user's. `rls.test.ts` covers the policy; `pattern-persistence.test.ts`
 covers the repository scoping.
+
+### `pattern_watermarks` (Phase 5.3C-3, `0013_pattern_watermarks_rls`)
+
+The same shape as `patterns`: RLS enabled, one policy `own_pattern_watermarks_read` (`FOR SELECT
+USING (user_id = auth.uid())`), no write policy. A user able to move their own watermark forward could
+freeze their patterns, since every detection for an earlier day would then be historical. The backend
+is the table owner and is not filtered by it; `rls.test.ts` covers the policy.
 
 ---
 

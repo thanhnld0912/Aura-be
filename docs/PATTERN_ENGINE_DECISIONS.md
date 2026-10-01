@@ -29,6 +29,7 @@
 | D14 | Data source per detector | **RESOLVED** | — |
 | D15 | Plan-change recomputation | **RESOLVED** — nightly job is authoritative for closed days | — |
 | D16 | Frequency/streak emission threshold and cold-start day count | **RESOLVED** — observedDays ≥ 30 in a 45-day window; frequency ≥ 4, streak ≥ 3 | — (decided; detectors still blocked, not implemented) |
+| D17 | Re-running an older day (backfill) against newer lifecycle state | **RESOLVED** — per-user watermark; a run before it is historical and writes no lifecycle change | — (implemented, 5.3C-3) |
 
 ---
 
@@ -410,6 +411,37 @@ still blocks timing, trend, frequency and streak; nothing below runs until a fam
 
 **Still blocking the families** (`registry.ts`): trend waits on D9's magnitude; timing on its
 noise pass-rate and the `workout_sessions` write path; frequency/streak are not built.
+
+## D17 — Historical re-runs and the per-user watermark
+
+**Decision (Phase 5.3C-3, implemented).** A user's **watermark** is the latest local day an
+authoritative detection run completed for them (`pattern_watermarks.evaluated_through`). A run for
+a day **before** the watermark is **historical**: it may finalise the day and detect on it, but it
+records **no lifecycle change** — no creation, re-detection, reactivation or staleness. A run on or
+after the watermark is authoritative and moves it forward (never back). Re-running the watermark's
+own day is authoritative: that is how a corrected day is re-evaluated.
+
+**Why the `patterns` table could not enforce this.** The invariant is "older evidence never overrides
+a newer lifecycle state". A pattern row only records its own last detection window (`window_end`);
+`markStale` changes `status` and `status_changed_at` — a wall-clock time, not the day evaluated.
+
+1. *Day 30 detected → a newer day absent → stale → re-run day 30:* `decideDetection` compares the
+   re-run (day 30) with the stored `window_end` (day 30), finds it not older, and **reactivates** the
+   pattern from day 30's evidence.
+2. A per-row "staled on" date would close (1) but not this: a newer run that finds nothing for a key
+   **with no row** leaves no date anywhere, so re-running an older day would **create** that pattern
+   from older evidence. "Day N was evaluated" is a fact about the user, not about a pattern row.
+
+**Why a watermark row per user is the smallest fix.** One row, overwritten, holding one date — not a
+run log and not a history. With it, (1) re-running day 30 after the newer day is historical and
+changes nothing, while a still newer day that finds the pattern may reactivate it; and (2) the older
+day can create nothing. The row-level guards (`decideDetection`, `decideAbsence`) stay as a second
+check.
+
+**Consequences.** A backfill whose range ends before the watermark finalises those days but changes
+no pattern; to recompute the current patterns from corrected history the range must reach the latest
+closed day (the default). Existing rows (migration `0014`) get the newest `window_end` among the
+user's patterns — a lower bound, since staling runs left no date.
 
 ---
 

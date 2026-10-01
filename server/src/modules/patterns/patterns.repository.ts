@@ -1,6 +1,6 @@
 import { and, eq, inArray, lte, sql } from 'drizzle-orm';
 import type { Db } from '../../database/client.js';
-import { patterns } from '../../database/schema/patterns.js';
+import { patternWatermarks, patterns } from '../../database/schema/patterns.js';
 import { decideDetection, staleRetentionCutoff } from '../../patterns/lifecycle.js';
 import type { DetectedPattern } from '../../patterns/persistence.js';
 
@@ -75,6 +75,32 @@ export class PatternsRepository {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`patterns:${userId}`}, 0))`);
       return work(new PatternsRepository(tx as unknown as Db));
     });
+  }
+
+  /** The latest day an authoritative detection run completed for this user, or null (D17). */
+  async evaluatedThrough(userId: string): Promise<string | null> {
+    const [row] = await this.db
+      .select({ evaluatedThrough: patternWatermarks.evaluatedThrough })
+      .from(patternWatermarks)
+      .where(eq(patternWatermarks.userId, userId));
+    return row?.evaluatedThrough ?? null;
+  }
+
+  /**
+   * Records that an authoritative run for `localDate` completed. Never moves the watermark
+   * back: the later of the stored and the given day is kept.
+   */
+  async advanceEvaluatedThrough(userId: string, localDate: string, now: Date): Promise<void> {
+    await this.db
+      .insert(patternWatermarks)
+      .values({ userId, evaluatedThrough: localDate, updatedAt: now })
+      .onConflictDoUpdate({
+        target: patternWatermarks.userId,
+        set: {
+          evaluatedThrough: sql`greatest(${patternWatermarks.evaluatedThrough}, excluded.evaluated_through)`,
+          updatedAt: now,
+        },
+      });
   }
 
   async findByUserAndKey(userId: string, key: string): Promise<PatternRow | undefined> {

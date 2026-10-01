@@ -34,6 +34,8 @@ function harness(overrides: Partial<PatternDetectionDeps> = {}): Harness {
     recordDetection: async () => ({ outcome: 'created' as const, pattern: {} as never }),
     listActive: async () => [],
     markStale: async () => undefined,
+    evaluatedThrough: async () => null,
+    advanceEvaluatedThrough: async () => undefined,
   };
   state.service = new PatternDetectionService({
     users: { findActiveById: async (id) => (id === USER ? ({ id, timezone: 'Asia/Ho_Chi_Minh' } as never) : undefined) },
@@ -109,6 +111,7 @@ describe('what a run reads and runs', () => {
       detectionsSuppressed: 0,
       detectionsOutdated: 0,
       patternsStaled: 0,
+      historical: false,
     });
     expect(state.logs.info).toHaveLength(1);
     expect(state.logs.info[0]).toMatchObject({ userId: USER, targetDate: '2026-09-30', detectionsEmitted: 0 });

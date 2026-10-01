@@ -264,6 +264,37 @@ describe.skipIf(!hasDatabase)('row level security', () => {
     });
   });
 
+  describe('pattern_watermarks — readable by their owner, writable by nobody', () => {
+    beforeEach(async () => {
+      for (const userId of [userA, userB]) {
+        await harness.sql`
+          insert into pattern_watermarks (user_id, evaluated_through, updated_at) values (${userId}, '2026-09-01', now())`;
+      }
+    });
+
+    it('lets user A read only their own watermark', async () => {
+      const rows = await asRlsUser(harness.sql, userA, (tx) => tx`select user_id from pattern_watermarks`);
+      expect(rows.map((r) => r['user_id'])).toEqual([userA]);
+      const anonymous = await asRlsUser(harness.sql, null, (tx) => tx`select user_id from pattern_watermarks`);
+      expect(anonymous).toHaveLength(0);
+    });
+
+    it('lets user A neither move nor remove a watermark — their own included', async () => {
+      await asRlsUser(harness.sql, userA, async (tx) => {
+        await tx`update pattern_watermarks set evaluated_through = '2099-01-01'`;
+        await tx`delete from pattern_watermarks`;
+      });
+      const rows = await harness.sql`select evaluated_through::text as d from pattern_watermarks`;
+      expect(rows.map((r) => r['d'])).toEqual(['2026-09-01', '2026-09-01']);
+
+      await expect(
+        asRlsUser(harness.sql, userA, (tx) => tx`
+          insert into pattern_watermarks (user_id, evaluated_through, updated_at) values (${userA}, '2099-01-01', now())
+          on conflict (user_id) do update set evaluated_through = excluded.evaluated_through`),
+      ).rejects.toThrow(/row-level security/i);
+    });
+  });
+
   describe('patterns — readable by their owner, writable by nobody', () => {
     it('lets user A read only their own patterns, even when naming user B', async () => {
       const own = await asRlsUser(harness.sql, userA, (tx) => tx`select user_id from patterns`);
@@ -363,8 +394,9 @@ describe.skipIf(!hasDatabase)('row level security', () => {
 
       const withoutRls = rows.filter((row) => row['enabled'] !== true).map((r) => r['table_name']);
       expect(withoutRls).toEqual([]);
-      // 15 from Phase 2, user_food_aliases from Phase 3, ai_runs from Phase 4, patterns from Phase 5.
-      expect(rows.length).toBe(18);
+      // 15 from Phase 2, user_food_aliases from Phase 3, ai_runs from Phase 4, patterns and
+      // pattern_watermarks from Phase 5.
+      expect(rows.length).toBe(19);
     });
 
     it('has a policy on every table that has RLS enabled', async () => {
