@@ -372,7 +372,9 @@ describe.skipIf(!hasDatabase)('insights — weekly report and story', () => {
       const base = {
         kind: 'correlation', subjectMetric: 'walks', subjectLabel: 'Walks', objectMetric: 'mood_score',
         objectLabel: 'Check-in mood', direction: 'positive', strength: 0.55, pValue: 0.06, sampleSize: 12,
-        windowDays: 30, coverage: 0.8, score: 0.6, caveat: 'An association in your own logs, not a cause.',
+        windowDays: 30, coverage: 0.8, caveat: 'An association in your own logs, not a cause.', key: 'correlation:mood_score:walks',
+        windowStart: '2026-08-15', windowEnd: '2026-09-13', evidence: { points: [] }, detectorVersion: 'correlation@1',
+        firstDetectedAt: '2026-09-01T19:15:00Z', lastDetectedAt: '2026-09-13T19:15:00Z', statusChangedAt: '2026-09-01T19:15:00Z',
       };
       patterns = [
         { ...base, id: 'walk-mood', status: 'active' },
@@ -443,7 +445,9 @@ describe.skipIf(!hasDatabase)('insights — weekly report and story', () => {
       patterns = [{
         id: 'walk-mood', kind: 'correlation', subjectMetric: 'walks', subjectLabel: 'Walks', objectMetric: 'mood_score',
         objectLabel: 'Check-in mood', direction: 'positive', strength: 0.55, pValue: 0.06, sampleSize: 12,
-        windowDays: 30, coverage: 0.8, status: 'active', score: 0.6, caveat: 'An association in your own logs, not a cause.',
+        windowDays: 30, coverage: 0.8, status: 'active', caveat: 'An association in your own logs, not a cause.', key: 'correlation:mood_score:walks',
+        windowStart: '2026-08-15', windowEnd: '2026-09-13', evidence: { points: [] }, detectorVersion: 'correlation@1',
+        firstDetectedAt: '2026-09-01T19:15:00Z', lastDetectedAt: '2026-09-13T19:15:00Z', statusChangedAt: '2026-09-01T19:15:00Z',
       }];
       script = [{ kind: 'ok', output: groundedStory }];
 

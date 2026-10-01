@@ -18,17 +18,17 @@
 | D3 | `partial` workout sessions | **RESOLVED → 0** (amends 5.1) | — (data has no write path) |
 | D4 | Several planned workouts in a day | RESOLVED (conservative) → null | — |
 | D5 | Vegetable / protein servings | **BLOCKED — OPEN** | `vegetable_servings`, `protein_servings`, pair 6 |
-| D6 | Detector output vs persisted pattern vs consumer view | Contract RESOLVED · `support`, caveat copy, `narrativeEn` **OPEN** | table migration details |
+| D6 | Detector output vs persisted pattern vs consumer view | **RESOLVED** — `coverage` (no `support`); strength 0..1, sign in `direction` · Vietnamese/other-kind caveat copy and `narrativeEn` **OPEN** | — |
 | D7 | Frequency vs streak | **RESOLVED** — one detector family, two kinds | — |
 | D8 | Duplicate `mood_score ↔ plan_adherence_pct` pair | **RESOLVED** — one undirected test | — |
 | D9 | Trend "slope materially different from zero" | Statistical part RESOLVED (implied by R²) · magnitude **OPEN** | trend detector |
-| D10 | Ranking `recency_weight`, `actionability` | **OPEN** | ranking, lifecycle promotion order |
+| D10 | Ranking | **RESOLVED** — `0.50·strength + 0.30·recency + 0.20·actionability`; implemented in 5.3B | — |
 | D11 | Scheduler timezone | **RESOLVED** — one global trigger, per-user closed-day semantics | — |
 | D12 | `weekly_summaries`, `insights`, `ai_feedback` scope | **RESOLVED** — boundary below | — |
 | D13 | Noise fixture vs frequency/streak | **RESOLVED** — noise fixture covers inferential detectors | — |
 | D14 | Data source per detector | **RESOLVED** | — |
 | D15 | Plan-change recomputation | **RESOLVED** — nightly job is authoritative for closed days | — |
-| D16 | Frequency/streak emission threshold and cold-start day count | **OPEN** (found during this review) | frequency/streak detector |
+| D16 | Frequency/streak emission threshold and cold-start day count | **RESOLVED** — observedDays ≥ 30 in a 45-day window; frequency ≥ 4, streak ≥ 3 | — (decided; detectors still blocked, not implemented) |
 
 ---
 
@@ -173,28 +173,31 @@ either metric is `undefined_definition`.
 
 | Object | Owner | Fields |
 |---|---|---|
-| **DetectorResult** (pure, per recompute) | detectors | `key`, `kind`, `subjectMetric`, `objectMetric \| null`, `direction`, `strength` (−1..1), `pValue \| null`, `sampleSize` (n), `coverage` (§2.2), `windowDays`, `windowEnd`, kind-specific stats (R², slope, group rates/n), `evidence` (the chart series) |
+| **DetectorResult** (pure, per recompute) | detectors | `key`, `kind`, `subjectMetric`, `objectMetric \| null`, `direction` (the sign), `strength` (magnitude, 0..1), `pValue \| null`, `sampleSize` (n), `coverage` (§2.2), `windowDays`, `windowEnd`, kind-specific stats (R², slope, group rates/n), `evidence` (the chart series) |
 | **PersistedPattern** (`patterns` row) | lifecycle | DetectorResult fields + `id`, `userId`, `status`, `score`, `firstDetectedAt`, `lastComputedAt`, and the timestamp the status last changed |
 | **PatternEvidence** (existing `patternEvidenceSchema`) | consumers | projection of an `active` PersistedPattern + `subjectLabel`/`objectLabel` + `caveat` |
 | **API pattern** (`GET /api/patterns`) | route | PatternEvidence + `narrative` (nullable) |
 
 - **Evidence:** `evidence` series, `sampleSize`, `coverage`, `pValue`, `strength`, stats.
-- **Lifecycle state:** `status`, `score`, the timestamps. `score` is persisted because the consumer
-  orders by it (`selectPatternEvidence`), but its formula is **OPEN** (D10).
+- **Lifecycle state:** `status` and the timestamps (`first_detected_at`, `last_detected_at`,
+  `status_changed_at`). `score` is **not** persisted: it is computed when serving (D10), because
+  recency depends on the reference date.
 - **Narration:** `narrative`, `narrativeEn`.
 - **Derived, not persisted:** `subjectLabel`/`objectLabel` come from `METRICS[key].label` at read time,
   so relabelling needs no data change.
 - **`key`:** deterministic identity — kind, then the metric keys (pairs in canonical order, D8), then
-  any condition (e.g. the timing split). Unique with `(user_id, key, window_days)` as designed.
+  any condition (e.g. the timing split). Unique with `(user_id, key)` — as built in 5.3A; the
+  window is evidence, not identity (this supersedes the `(user_id, key, window_days)` sketch).
 
 **Field mismatches and their resolution.**
 
 | Field | Where | Resolution |
 |---|---|---|
-| `coverage` vs `support` | schema has `coverage`; table/API have `support` | Persist **`coverage`** — the only one defined (§2.2), and the one the gate uses. `support` has no definition: the `API_DESIGN.md` §14 example (`sampleSize 14, windowDays 30, support 0.75`) is not coverage (14/30 = 0.47). **OPEN:** define `support` or drop it from the table/API design. |
-| `score` | schema only | Persist on the table (lifecycle); formula OPEN (D10). |
+| `coverage` vs `support` | schema has `coverage`; table/API have `support` | Persist **`coverage`** — the only one defined (§2.2), and the one the gate uses. `support` has no definition: the `API_DESIGN.md` §14 example (`sampleSize 14, windowDays 30, support 0.75`) is not coverage (14/30 = 0.47). **RESOLVED:** `support` is dropped; the `patterns` table (5.3A) and the evidence contract (5.3B) carry `coverage` only. |
+| `strength` sign | ERD, table sketch and consumer schema said −1..1 | **RESOLVED:** a magnitude in 0..1 (\|r\| for a correlation, \|rate difference\| for timing); the sign is `direction`. Enforced by the detectors, `chk_pattern_strength` (5.3A) and the evidence contract (5.3B). |
+| `score` | schema only | **RESOLVED:** not persisted; computed when serving (D10). |
 | `subjectLabel`/`objectLabel` | schema only | Derived from the metric catalog; not stored. |
-| `caveat` | schema + API required; table absent | Engine-owned deterministic text per `kind` × locale, never model-authored (`AI_ARCHITECTURE.md`). The only authored text is the English correlation caveat in `API_DESIGN.md` §14. **OPEN (copy):** Vietnamese text, and texts for trend, timing, frequency, streak. |
+| `caveat` | schema + API required; table absent | Engine-owned deterministic text per `kind` × locale, never model-authored (`AI_ARCHITECTURE.md`). The only authored text is the English correlation caveat in `API_DESIGN.md` §14 — implemented in `patterns/caveats.ts` (5.3B), not stored. Where no copy exists the caveat is `null`, which does not hide a pattern. **OPEN (copy):** Vietnamese text, and texts for trend, timing, frequency, streak. |
 | `pValue`, `n` | schema `pValue`/`sampleSize`; table `p_value`/`sample_size` | Same fields, naming only. `pValue` null for frequency/streak (no test). |
 | `narrativeEn` | API only | **OPEN:** whether both locales are stored, or one per user `locale`. Not needed before narration. |
 | status timestamp | spec requires "stale 30 d → deleted", "dismissed excluded 60 d" | The table needs a status-changed timestamp to evaluate those rules; add it with the table. |
@@ -214,7 +217,7 @@ and `kind: 'frequency'` for repetition and distributions (most-repeated foods, w
 logging split, skip-reason distribution). Both have `pValue: null`, `objectMetric` as applicable,
 and an `evidence` payload describing the counts they state.
 
-**Impact.** Ranking's actionability (D10) can distinguish them. Emission thresholds are OPEN (D16).
+**Impact.** Ranking's actionability (D10) can distinguish them. Emission thresholds are decided in D16 (frequency ≥ 4, streak ≥ 3).
 
 ## D8 — Duplicate correlation pair
 
@@ -268,18 +271,28 @@ magnitude question is answered or explicitly waived. Cold start still puts trend
 
 ## D10 — Ranking
 
-**Decision.** **OPEN — requires a product decision.** The formula's structure is documented
-(`0.4·|strength| + 0.3·min(n/30,1) + 0.2·recency_weight + 0.1·actionability`), the two terms are not.
+**Decision.** **RESOLVED (product decision, implemented in Phase 5.3B).** This replaces the
+`PATTERN_ENGINE.md` §4 sketch (`0.4·|strength| + 0.3·min(n/30,1) + 0.2·recency_weight + 0.1·actionability`).
 
-**Information required before ranking is implemented.**
-1. `recency_weight` ∈ [0,1]: what is measured — e.g. the share of evidence points in the last 14 days,
-   or whether the pattern also holds on the last 14 days alone — and how it maps to [0,1].
-2. `actionability` ∈ [0,1] per kind: the order is given ("timing/frequency > abstract correlation"),
-   the values and where trend and streak sit are not.
-3. `|strength|` for kinds without *r*: frequency and streak need a defined strength in [0,1].
-4. Tie-break: the consumer already breaks ties by n then id (`selectPatternEvidence`); confirm.
+```
+score   = 0.50 · strength + 0.30 · recency + 0.20 · actionability      (0..1, never rounded for ordering)
+recency = 2 ^ (−ageDays / 14),   ageDays = calendar days from windowEnd to the reference date (≥ 0)
+order   = score DESC, strength DESC, lastDetectedAt DESC, key ASC
+```
 
-Until then, lifecycle may promote and list patterns without a score; `score` must not be fabricated.
+- **`score` is a serving order, not a statistic.** It never replaces strength, p-value, sample size
+  or coverage, and it is **not persisted** — recency depends on the reference date.
+- **Recency reads `windowEnd`**, how recent the evidence is — not `lastDetectedAt`, which is only when
+  that evidence was written. The reference date is explicit (the reader's local today); the ranking
+  code never reads a clock.
+- **`actionability` is serving metadata on the detector registry**, never stored with a pattern:
+  correlation **0.70**. Timing, trend, frequency and streak have **no value decided** (`null`); a
+  pattern of such a kind cannot be scored and is not ranked — and none can be stored while those
+  families are blocked.
+- **Tie-break** is exactly the four keys above; sample size and id play no part.
+- **Implemented:** `server/src/patterns/ranking.ts`, applied by `selectPatternEvidence`.
+- **Still open:** actionability values for the blocked families; a strength in [0,1] for
+  frequency and streak when they are built.
 
 ## D11 — Scheduler timezone
 
@@ -375,14 +388,23 @@ rows (`insights.repository.ts`). Evidence for these outputs is the grouped count
 until the next backfill or write for that day. Making plan writes trigger a recompute is an optional
 Phase 5.1 amendment, not required by any document.
 
-## D16 — Found during this review (OPEN)
+## D16 — Cold start and frequency/streak thresholds
 
-1. **Frequency/streak emission threshold.** §3.4 lists what the detector computes but not when a
-   result becomes a pattern (minimum streak length, minimum repetitions, minimum split difference).
-   Without it, every user with two logged days has a "streak". **OPEN — product decision.**
-2. **"Days of data" for cold start (§7).** Whether tiers count observed days in the user's whole
-   history, or in the analysis window. The correlation gates (n ≥ 10, coverage ≥ 70%) already subsume
-   the 14-day tier for correlations; the 7-day tier matters for frequency/streak. **OPEN.**
+**Decision.** **RESOLVED (product decision) — decided, not yet implemented.** The detector registry
+still blocks timing, trend, frequency and streak; nothing below runs until a family is unblocked.
+
+1. **Cold start for the long-term detectors** (timing, trend, frequency, streak): **observedDays ≥ 30
+   within the 45-day detection window.** "Observed" is the day-level fact of §2.1 (something was
+   logged) — not 30 meals, not 30 workout days, not 30 days on which a given metric is non-null.
+2. **Frequency:** a result becomes a pattern at a **minimum of 4 occurrences**, with the cold-start
+   gate above.
+3. **Streak:** a **minimum of 3 consecutive occurrences**, with the cold-start gate above. An
+   unobserved or missing day **breaks** a streak.
+4. **Correlation keeps its own gates** (n ≥ 10, coverage ≥ 70%, variance, |r| ≥ 0.45, p < 0.10) and
+   does **not** take the 30-day gate.
+
+**Still blocking the families** (`registry.ts`): trend waits on D9's magnitude; timing on its
+noise pass-rate and the `workout_sessions` write path; frequency/streak are not built.
 
 ---
 

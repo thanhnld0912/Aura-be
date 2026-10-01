@@ -69,6 +69,19 @@ export class PatternsRepository {
   }
 
   /**
+   * This user's current patterns — `active` only, which is what serving means by current.
+   * Stale and dismissed rows are lifecycle state, not claims to show. Order is not meaningful
+   * here; ranking orders them (`patterns/ranking.ts`).
+   */
+  async listActive(userId: string): Promise<PatternRow[]> {
+    return this.db
+      .select()
+      .from(patterns)
+      .where(and(eq(patterns.userId, userId), eq(patterns.status, 'active')))
+      .orderBy(patterns.key);
+  }
+
+  /**
    * A detector found this pattern for this user. Creates the row, or applies the lifecycle
    * to the existing one — never a second row for the same `(user_id, key)`.
    *

@@ -7,7 +7,16 @@ import type {
   workoutStatusEnum,
 } from '../database/schema/enums.js';
 import { addLocalDays } from '../lib/local-date.js';
-import type { PatternEvidence, PatternSelectionStatus } from './pattern-evidence.js';
+import type { PatternSelection, PatternSelectionStatus, RankedPatternEvidence } from './pattern-evidence.js';
+
+/**
+ * A pattern as the weekly report publishes it. `GET /api/insights/weekly` requires every
+ * pattern to carry its hedge (API_DESIGN.md §14), while the evidence contract allows a null
+ * caveat where no copy exists for a kind (D6). Every kind that can emit today has copy, so
+ * nothing is lost; were one to emit without it, the report would leave that pattern out
+ * rather than publish it unhedged — making the API caveat nullable is the pattern-API work.
+ */
+export type PublishedPattern = RankedPatternEvidence & { caveat: string };
 
 /**
  * A week of someone's logs, turned into facts — deterministically, and without a model.
@@ -119,7 +128,7 @@ export interface WeeklyReportInput {
   timezone: string;
   current: WeeklyRawData;
   previous: WeeklyRawData;
-  patterns: { status: PatternSelectionStatus; items: PatternEvidence[] };
+  patterns: PatternSelection;
 }
 
 // ── Output ─────────────────────────────────────────────────────────────────────
@@ -235,7 +244,7 @@ export interface WeeklyReport {
     status: ComparisonStatus;
     metrics: ComparisonMetric[];
   };
-  patterns: { status: PatternSelectionStatus; items: PatternEvidence[] };
+  patterns: { status: PatternSelectionStatus; items: PublishedPattern[] };
   dataQuality: { limitations: LimitationCode[] };
 }
 
@@ -276,9 +285,15 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReport {
   return {
     ...current,
     comparison,
-    patterns: input.patterns,
+    patterns: publishable(input.patterns),
     dataQuality: { limitations: limitationsOf(current, comparison.status, input.patterns.status) },
   };
+}
+
+function publishable(selection: PatternSelection): WeeklyReport['patterns'] {
+  const items = selection.items.flatMap((item) => (item.caveat === null ? [] : [{ ...item, caveat: item.caveat }]));
+  if (selection.status === 'unavailable') return { status: 'unavailable', items };
+  return { status: items.length > 0 ? 'available' : 'none', items };
 }
 
 function summarise(weekStart: string, today: string, timezone: string, raw: WeeklyRawData): WeekFigures {

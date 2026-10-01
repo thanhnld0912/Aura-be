@@ -49,19 +49,27 @@ const previousDay = (offset: number): string => addLocalDays(WEEK, offset - 7);
 
 const PATTERN = {
   id: 'sleep-breakfast',
+  key: 'correlation:bedtime_min:breakfast_logged',
   kind: 'correlation',
   subjectMetric: 'bedtime_min',
   subjectLabel: 'Bedtime',
   objectMetric: 'breakfast_logged',
   objectLabel: 'Breakfast logged',
   direction: 'negative',
-  strength: -0.62,
+  // Magnitude: the sign is `direction` (D6).
+  strength: 0.62,
   pValue: 0.04,
   sampleSize: 14,
+  windowStart: '2026-08-15',
+  windowEnd: '2026-09-13',
   windowDays: 30,
   coverage: 0.8,
+  evidence: { points: [] },
+  detectorVersion: 'correlation@1',
   status: 'active',
-  score: 0.7,
+  firstDetectedAt: '2026-09-01T19:15:00Z',
+  lastDetectedAt: '2026-09-13T19:15:00Z',
+  statusChangedAt: '2026-09-01T19:15:00Z',
   caveat: 'This is an association in your own logs, not a cause.',
 };
 
@@ -101,7 +109,7 @@ function report(options: { current?: Partial<WeeklyRawData>; patterns?: unknown[
       ...EMPTY_WEEK,
       events: [0, 2, 4].map((offset) => ({ localDate: previousDay(offset), total: 1, walks: 0, sleepMinutes: null })),
     },
-    patterns: selectPatternEvidence(options.patterns === undefined ? [PATTERN] : options.patterns),
+    patterns: selectPatternEvidence(options.patterns === undefined ? [PATTERN] : options.patterns, '2026-09-14'),
   });
 }
 

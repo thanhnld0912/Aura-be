@@ -256,6 +256,13 @@ score = |strength| × 0.4
 The top 3–5 are shown. `InsightsView` displays three pattern cards, so the engine surfaces at
 most five and the UI picks.
 
+> **As built (Phase 5.3B) — the formula above is superseded by D10** (`PATTERN_ENGINE_DECISIONS.md`):
+> `score = 0.50·strength + 0.30·recency + 0.20·actionability`, `recency = 2^(−ageDays/14)` with
+> `ageDays` counted from the pattern's `windowEnd` to an explicit reference date, and the order
+> **score DESC, strength DESC, lastDetectedAt DESC, key ASC**. `strength` is a magnitude in 0..1; the
+> sign is `direction`. Actionability is registry metadata (correlation 0.70; the blocked families
+> have none). The score is computed when serving and never stored (`server/src/patterns/ranking.ts`).
+
 Lifecycle:
 
 ```
@@ -285,9 +292,33 @@ keep repeating a claim that the data no longer supports.
 > dismissal and is reactivated by one after that; a stale pattern is deleted 30 days after it
 > went stale. A detection over an older window than the stored one changes nothing.
 >
-> Not built yet: the nightly run that calls these (and marks undetected patterns stale), the
-> retention job, ranking and `score`, caveats, the `PatternEvidenceSource` adapter, the
-> `/api/patterns` endpoints, and narration.
+> **As built (Phase 5.3B) — serving.** Persisted patterns reach consumers through the existing
+> `PatternEvidenceSource` contract (`server/src/insights/pattern-evidence.ts`):
+>
+> - **Contract.** A served pattern carries `id`, `key`, kind, metrics and labels, `direction`,
+>   `strength` (0..1 — a signed value is malformed and dropped), `pValue`, `sampleSize`, `coverage`,
+>   `windowStart`/`windowEnd`/`windowDays`, `evidence`, `detectorVersion`, `status`, the three
+>   timestamps, and `caveat` (`string | null`). No `support`, no stored `score`.
+> - **Adapter.** `PatternsEvidenceSource` (`server/src/modules/patterns/`) reads the user's
+>   **active** rows (`PatternsRepository.listActive`) and projects them: labels from the metric
+>   catalog, the caveat from `patterns/caveats.ts`, timestamps as ISO strings. It computes no
+>   statistic. The table is current state, so a period that does not contain the reader's today
+>   (a past week) gets `null` — "cannot say" — never `[]`.
+> - **Ranking.** `selectPatternEvidence(candidates, referenceDate)` keeps valid `active` patterns,
+>   ranks them with `patterns/ranking.ts` (§4 note above, D10), keeps one per key and caps at three.
+> - **Caveats.** Deterministic, by kind and locale, never model-authored: only the English
+>   correlation caveat of `API_DESIGN.md` §14 exists. Consumers hand the model English evidence, so
+>   the source attaches the English caveat; elsewhere the caveat is `null`, which does not hide a
+>   pattern from selection. `GET /api/insights/weekly` still publishes `caveat` as a required string
+>   (API_DESIGN.md §14), so a pattern without copy would be left out of that report — no kind
+>   that can emit today lacks copy.
+>
+> | | Status |
+> |---|---|
+> | Persistence, lifecycle, ranking, evidence source, caveat catalog (English correlation) | **implemented** |
+> | Production wiring of `PatternsEvidenceSource` (today `NO_PATTERN_ENGINE`), the nightly detection run, stale marking and the retention job | **planned** |
+> | `/api/patterns`, `/:id/series`, `/:id/dismiss`; nullable caveat in the published API; Vietnamese and other-kind caveat copy; narration | **planned** |
+> | Timing, trend, frequency, streak detectors | **blocked** (`registry.ts`) |
 
 `ai_feedback.rating = 'wrong'` on a pattern-derived insight forces immediate recomputation and
 lowers that pattern's ranking. **User contradiction is the strongest available signal that a
@@ -306,7 +337,7 @@ never the raw data:
   "subject": { "metric": "bedtime_min", "label": "Bedtime",
                "mean": 1418, "unit": "minutes past midnight" },
   "object":  { "metric": "breakfast_logged", "label": "Breakfast logged" },
-  "direction": "negative", "strength": -0.62,
+  "direction": "negative", "strength": 0.62,
   "sampleSize": 14, "windowDays": 30,
   "contrast": { "when_late": { "breakfast_rate": 0.25, "n": 8 },
                 "when_early": { "breakfast_rate": 0.83, "n": 6 } },

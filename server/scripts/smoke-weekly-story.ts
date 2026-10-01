@@ -77,6 +77,7 @@ const report = buildWeeklyReport({
   patterns: selectPatternEvidence([
     {
       id: 'smoke-walk-mood',
+      key: 'correlation:mood_score:walks',
       kind: 'correlation',
       subjectMetric: 'walks',
       subjectLabel: 'Walks',
@@ -86,13 +87,19 @@ const report = buildWeeklyReport({
       strength: 0.52,
       pValue: 0.07,
       sampleSize: 12,
+      windowStart: '2026-08-15',
+      windowEnd: '2026-09-13',
       windowDays: 30,
       coverage: 0.8,
+      evidence: { points: [] },
+      detectorVersion: 'correlation@1',
       status: 'active',
-      score: 0.6,
+      firstDetectedAt: '2026-09-01T19:15:00Z',
+      lastDetectedAt: '2026-09-13T19:15:00Z',
+      statusChangedAt: '2026-09-01T19:15:00Z',
       caveat: 'This is an association in your own logs, not a cause.',
     },
-  ]),
+  ], '2026-09-14'),
 });
 
 const rows: RecordAiRunInput[] = [];

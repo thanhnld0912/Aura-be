@@ -199,7 +199,8 @@ export function buildWeeklyEvidence(
       kind: 'pattern',
       source: `pattern:${pattern.id}`,
       statement: `${pair}: ${pattern.kind} pattern, ${pattern.direction} direction, strength ${pattern.strength.toFixed(2)}, ${pattern.sampleSize} days of data in a ${pattern.windowDays}-day window, ${percent(pattern.coverage)}% coverage`,
-      caveat: pattern.caveat,
+      // A pattern without caveat copy (D6) is still evidence; it simply carries no hedge to attach.
+      ...(pattern.caveat !== null ? { caveat: pattern.caveat } : {}),
       patternId: pattern.id,
     });
   }

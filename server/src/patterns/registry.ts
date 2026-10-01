@@ -39,12 +39,20 @@ export interface DetectorRegistration {
    * pattern says which definition produced it.
    */
   version: string;
+  /**
+   * Serving metadata for ranking (`ranking.ts`, D10): how directly a person can act on what
+   * this family reports, 0..1. A heuristic, not a statistic and not a confidence. `null` where
+   * no value is decided — a pattern of that family cannot be ranked, and none can be stored
+   * while the family is blocked. Never persisted with a pattern.
+   */
+  actionability: number | null;
 }
 
 export const DETECTOR_REGISTRY: Readonly<Record<DetectorFamily, DetectorRegistration>> = {
   correlation: {
     family: 'correlation',
     version: 'correlation@1',
+    actionability: 0.7,
     kinds: ['correlation'],
     emits: true,
     blockedBy: [],
@@ -53,6 +61,7 @@ export const DETECTOR_REGISTRY: Readonly<Record<DetectorFamily, DetectorRegistra
   timing: {
     family: 'timing',
     version: 'timing@1',
+    actionability: null,
     kinds: ['timing'],
     emits: false,
     blockedBy: [
@@ -64,6 +73,7 @@ export const DETECTOR_REGISTRY: Readonly<Record<DetectorFamily, DetectorRegistra
   trend: {
     family: 'trend',
     version: 'trend@1',
+    actionability: null,
     kinds: ['trend'],
     emits: false,
     blockedBy: [
@@ -75,6 +85,7 @@ export const DETECTOR_REGISTRY: Readonly<Record<DetectorFamily, DetectorRegistra
   frequency_streak: {
     family: 'frequency_streak',
     version: 'frequency_streak@1',
+    actionability: null,
     kinds: ['frequency', 'streak'],
     emits: false,
     blockedBy: ['D16 — no emission threshold (minimum streak, repetitions or split) is defined'],

@@ -139,7 +139,7 @@ export class InsightsService {
     const [current, previous, candidates] = await Promise.all([
       this.loadWeek(user.id, week.weekStart, week.today),
       this.loadWeek(user.id, previousWeekStart, week.today),
-      this.deps.patterns.forPeriod(user.id, { from: week.weekStart, to: weekEnd }),
+      this.deps.patterns.forPeriod(user.id, { from: week.weekStart, to: weekEnd, today: week.today }),
     ]);
 
     return buildWeeklyReport({
@@ -148,7 +148,7 @@ export class InsightsService {
       timezone: user.timezone,
       current,
       previous,
-      patterns: selectPatternEvidence(candidates),
+      patterns: selectPatternEvidence(candidates, week.today),
     });
   }
 

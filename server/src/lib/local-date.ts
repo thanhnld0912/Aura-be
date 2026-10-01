@@ -117,6 +117,18 @@ export function addLocalDays(localDate: LocalDate, days: number): LocalDate {
 }
 
 /**
+ * Whole calendar days from `from` to `to`: `localDaysBetween('2026-09-06', '2026-09-07')` → 1,
+ * negative when `to` is earlier. Pure calendar arithmetic, like `addLocalDays`.
+ */
+export function localDaysBetween(from: LocalDate, to: LocalDate): number {
+  const utc = (localDate: LocalDate) => {
+    const [year, month, day] = localDate.split('-').map(Number) as [number, number, number];
+    return Date.UTC(year, month - 1, day);
+  };
+  return Math.round((utc(to) - utc(from)) / 86_400_000);
+}
+
+/**
  * ISO weekday of a calendar date: 1 is Monday, 7 is Sunday.
  *
  * Read in UTC on purpose, and correctly so: the argument is already a *local* calendar
