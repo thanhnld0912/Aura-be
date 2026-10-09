@@ -118,6 +118,15 @@ forces a conversion the user cannot perform, and the friction ends the logging h
 `food_portions` is what makes `LogModal`'s existing portion chips
 (`'Small' | '2 bowls' | 'Large'`) resolvable to real numbers.
 
+**A portion keeps its id for life.** A logged item records which portion produced its grams
+(`meal_items.portion_id`), so re-seeding the dataset must not reissue portions. Within a food
+a portion is identified by its English label, compared case- and space-insensitively; the
+dataset validator refuses a food that repeats one. Correcting a portion's grams or Vietnamese
+label updates the same row; a new label is a new portion; a portion dropped from the dataset
+is kept (it only stops being the default) because meals may point at it. Two labels for the
+same weight ("1 serving" and "100 g") stay two portions — the seed never merges by grams.
+Mechanics and tests: `DATABASE_DESIGN.md` §3.6, `tests/integration/seed-foods.test.ts`.
+
 Sources for the seed values: Vietnamese National Institute of Nutrition composition tables
 where available, USDA equivalents for component ingredients otherwise. Every row records
 `dataQuality`, and composed dishes are marked `medium` — an honest label for a recipe-dependent

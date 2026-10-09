@@ -81,11 +81,23 @@ describe.skipIf(!hasDatabase)('food seed — portion identity', () => {
     return item!.id;
   };
 
+  /** Everything a logged item records: its portion link and its nutrition snapshot. */
   const itemState = async (itemId: string) => {
-    const [row] = await harness.sql<{ portionId: string | null; kcal: string; grams: string }[]>`
-      select portion_id as "portionId", kcal::text as kcal, grams_resolved::text as grams from meal_items where id = ${itemId}`;
+    type ItemState = {
+      portionId: string | null; foodId: string | null; quantity: string; unit: string; grams: string | null;
+      portionLabel: string | null; kcal: string | null; protein: string | null; carbs: string | null;
+      fat: string | null; fiber: string | null;
+    };
+    const [row] = await harness.sql<ItemState[]>`
+      select portion_id as "portionId", food_id as "foodId", quantity::text as quantity, unit::text as unit,
+             grams_resolved::text as grams, portion_label::text as "portionLabel", kcal::text as kcal,
+             protein_g::text as protein, carbs_g::text as carbs, fat_g::text as fat, fiber_g::text as fiber
+      from meal_items where id = ${itemId}`;
     return row!;
   };
+
+  const foodIds = () => harness.sql<{ id: string; externalId: string }[]>`
+    select id, external_id as "externalId" from foods where provider = 'local' order by external_id`;
 
   it('A: seeds the full dataset — every food and every portion', async () => {
     const result = await seed(VN_FOODS);
@@ -104,8 +116,9 @@ describe.skipIf(!hasDatabase)('food seed — portion identity', () => {
     });
   });
 
-  it('B: a second run of the same dataset keeps every portion id and adds no rows', async () => {
+  it('B: a second run of the same dataset keeps every food and portion id and adds no rows', async () => {
     await seed(VN_FOODS);
+    const foodsBefore = await foodIds();
     const before = await harness.sql<{ id: string; key: string }[]>`
       select fp.id, f.external_id || '/' || fp.label as key from food_portions fp join foods f on f.id = fp.food_id order by 2`;
 
@@ -113,6 +126,7 @@ describe.skipIf(!hasDatabase)('food seed — portion identity', () => {
     const after = await harness.sql<{ id: string; key: string }[]>`
       select fp.id, f.external_id || '/' || fp.label as key from food_portions fp join foods f on f.id = fp.food_id order by 2`;
 
+    expect(await foodIds()).toEqual(foodsBefore);
     expect(after).toEqual(before);
     expect(again).toMatchObject({ portionsInserted: 0, portionsUpdated: 0, portionsUnchanged: before.length, portionsRetained: 0 });
   });
@@ -143,12 +157,22 @@ describe.skipIf(!hasDatabase)('food seed — portion identity', () => {
     const updated = (await portionsOf()).get('1 Bowl')!;
     expect(updated).toEqual({ id: bowl.id, label: '1 Bowl', labelVi: '1 chén cơm', grams: '160.00', isDefault: true });
     expect(result).toMatchObject({ portionsInserted: 0, portionsUpdated: 1, portionsUnchanged: 2 });
-    // The meal keeps the portion and the nutrition it was logged with.
-    expect(await itemState(itemId)).toEqual({ portionId: bowl.id, kcal: '195.00', grams: '150.00' });
+    // The meal keeps the portion and the nutrition it was logged with — nothing is recalculated.
+    expect(await itemState(itemId)).toMatchObject({
+      portionId: bowl.id,
+      grams: '150.00',
+      portionLabel: 'medium',
+      kcal: '195.00',
+      protein: '4.05',
+      carbs: '42.00',
+      fat: '0.45',
+      fiber: '0.60',
+    });
   });
 
   it('E: a new portion is inserted once, however many times the seed runs', async () => {
     await seed([testFood(BASE)]);
+    const idsBefore = new Map([...(await portionsOf())].map(([label, row]) => [label, row.id]));
     const withPlate = [...BASE, portion('1 plate', 200, { labelVi: '1 đĩa' })];
 
     const first = await seed([testFood(withPlate)]);
@@ -156,6 +180,7 @@ describe.skipIf(!hasDatabase)('food seed — portion identity', () => {
 
     const portions = await portionsOf();
     expect([...portions.keys()].sort()).toEqual(['1 bowl', '1 plate', 'half bowl', 'large bowl']);
+    for (const [label, id] of idsBefore) expect(portions.get(label)?.id, label).toBe(id);
     expect(first).toMatchObject({ portionsInserted: 1, portionsUnchanged: 3 });
     expect(second).toMatchObject({ portionsInserted: 0, portionsUnchanged: 4 });
   });
@@ -189,6 +214,21 @@ describe.skipIf(!hasDatabase)('food seed — portion identity', () => {
       { label: 'half bowl', grams: '75.00' },
       { label: 'large bowl', grams: '300.00' },
     ]);
+  });
+
+  it('rolls back every food when a later food fails partway through the run', async () => {
+    const second: SeedFood = { ...testFood(BASE), externalId: 'test-seed-noodles', nameVi: 'mì thử nghiệm', nameEn: 'test noodles' };
+    await seed([testFood(BASE), second]);
+    // The second food is made ambiguous, so the run fails after the first food's changes were queued.
+    await harness.sql`
+      insert into food_portions (food_id, label, grams)
+      select f.id, 'Half Bowl', 75 from foods f where f.external_id = 'test-seed-noodles'`;
+
+    const firstChanged = testFood([BASE[0]!, portion('1 bowl', 175, { labelVi: '1 chén', isDefault: true }), BASE[2]!]);
+    await expect(seed([firstChanged, second])).rejects.toThrow(/test-seed-noodles/);
+
+    // The first food's correction did not land: one transaction, all or nothing.
+    expect((await portionsOf()).get('1 bowl')?.grams).toBe('150.00');
   });
 
   it('G: a portion that leaves the dataset is kept, with its meals, and stops being the default', async () => {
