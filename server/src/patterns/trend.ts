@@ -7,10 +7,11 @@ import { linearRegression } from './statistics.js';
  * a linear fit of one metric against time, checked against the gates that are decided.
  *
  * **This module assesses; it never emits.** D9 leaves the practical-magnitude gate ("slope
- * materially different from zero") open, and §7 reserves trends for "30+" days of data whose
- * counting is open too (D16). So an assessment that clears `n ≥ 14` and `R² ≥ 0.3` is only
- * that — no minimum slope is applied here, because none has been decided, and no pattern is
- * produced. The registry (`registry.ts`) keeps trend blocked.
+ * materially different from zero") open. §7 reserves trends for "30+" days of data; D16 has
+ * since decided that count (≥ 30 observed days in the 45-day window, `cold-start.ts`), but it
+ * is not applied here yet — that belongs with unblocking trend. So an assessment that clears
+ * `n ≥ 14` and `R² ≥ 0.3` is only that — no minimum slope is applied, because none has been
+ * decided, and no pattern is produced. The registry (`registry.ts`) keeps trend blocked.
  *
  * Pure: day metrics in, an assessment out.
  */

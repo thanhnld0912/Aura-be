@@ -66,7 +66,8 @@ export const DETECTOR_REGISTRY: Readonly<Record<DetectorFamily, DetectorRegistra
     kinds: ['timing'],
     emits: false,
     blockedBy: [
-      'D16 — §7 allows timing from "30+" days of data, and how those days are counted is open',
+      'D16 — the cold-start gate (≥ 30 observed days in the 45-day window) is decided and built in cold-start.ts, but timing does not apply it yet',
+      'D16 — noise: the §3.3 gates pass ≈ 9% of seeded pure-noise 45-day datasets (PATTERN_ENGINE.md §3)',
       'data — no endpoint writes workout_sessions, so workout_completed is null in production (D3)',
     ],
     spec: 'PATTERN_ENGINE.md §3.3; evaluation in timing.ts',
@@ -79,7 +80,7 @@ export const DETECTOR_REGISTRY: Readonly<Record<DetectorFamily, DetectorRegistra
     emits: false,
     blockedBy: [
       'D9 — the minimum practical slope ("materially different from zero") is open',
-      'D16 — §7 allows trends from "30+" days of data, and how those days are counted is open',
+      'D16 — the cold-start gate (≥ 30 observed days in the 45-day window) is decided and built in cold-start.ts, but trend does not apply it yet',
     ],
     spec: 'PATTERN_ENGINE.md §3.2; PATTERN_ENGINE_DECISIONS.md D9; assessment in trend.ts',
   },
@@ -89,8 +90,12 @@ export const DETECTOR_REGISTRY: Readonly<Record<DetectorFamily, DetectorRegistra
     actionability: null,
     kinds: ['frequency', 'streak'],
     emits: false,
-    blockedBy: ['D16 — no emission threshold (minimum streak, repetitions or split) is defined'],
-    spec: 'PATTERN_ENGINE.md §3.4; PATTERN_ENGINE_DECISIONS.md D7, D16 — not implemented',
+    blockedBy: [
+      'D10 — no strength in [0,1] and no actionability value is decided for frequency or streak, so neither can be scored or ranked',
+      'D6 — persisted evidence is a subject/object series and toDetectedPattern accepts correlations only; a run of dates or a count distribution has no stored shape',
+      'frequency — not built: no counting unit for most-repeated foods, no emission rule for the weekday/weekend split, and skip reasons are data-blocked (D3)',
+    ],
+    spec: 'PATTERN_ENGINE.md §3.4; PATTERN_ENGINE_DECISIONS.md D7, D14, D16 — streak assessment in streak.ts; frequency not built',
   },
 };
 

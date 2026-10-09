@@ -144,9 +144,13 @@ Four detector families, each a pure function of a metric series.
 > | Family | Status | Code |
 > |---|---|---|
 > | Correlation | **emits** — the two approved pairs only (D8) | `correlation.ts` |
-> | Timing | evaluation built, **blocked** — D16 (the "30+ days" tier of §7), and no `workout_sessions` write path | `timing.ts` |
-> | Trend | assessment built (n ≥ 14, R² ≥ 0.3, calendar-day x), **blocked** — D9 magnitude, D16 | `trend.ts` |
-> | Frequency / streak | **blocked** — D16, not implemented | — |
+> | Timing | evaluation built, **blocked** — noise pass-rate (below), cold start not yet applied, and no `workout_sessions` write path | `timing.ts` |
+> | Trend | assessment built (n ≥ 14, R² ≥ 0.3, calendar-day x), **blocked** — D9 magnitude; cold start not yet applied | `trend.ts` |
+> | Streak | assessment built (Phase 5.3D, §3.4), **blocked** — D10 strength and actionability, D6 evidence shape | `streak.ts` |
+> | Frequency | **not built** — no counting unit, no split rule, skip reasons data-blocked (§3.4) | — |
+>
+> The D16 cold-start gate (≥ 30 observed days in the 45-day window) is `cold-start.ts`. Only the
+> streak assessment applies it so far; applying it to timing and trend is part of unblocking them.
 >
 > Measured on the seeded noise fixture (1,000 datasets): correlation passes ≈ 1.4% per pair and
 > trend ≈ 0.3% per metric, close to theory; the timing gates of §3.3 pass ≈ 9% of pure-noise
@@ -240,6 +244,44 @@ The skip-reason breakdown is quietly one of the most useful outputs in the produ
 scheduled after 18:00" — an observation a person can actually act on, and one that reframes
 the skip as a scheduling problem rather than a character problem.
 
+> **As built (Phase 5.3D) — streak assessment and the cold-start gate. Neither emits.**
+>
+> **Cold start** (`cold-start.ts`, D16 §1). The 45 calendar days ending on the last closed day;
+> passes at **≥ 30 observed days**. Observed is the §2.1 day fact (`events_logged > 0`), so a day
+> with no row and a row whose events were deleted both count as unobserved, and a logged day with
+> zero meals counts as observed. The denominator is the window's 45 days, never the rows present.
+>
+> **Logging streak** (`streak.ts`, D7, D14, D16 §3) — the only streak D14 defines.
+>
+> | | |
+> |---|---|
+> | Input | `daily_summaries` → `DailyFeatures.observed`, 45-day window ending on the last closed day |
+> | Counted | consecutive **observed** days, on the user's own local dates (D11) |
+> | Gates | cold start (above), then a run of **≥ 3** days |
+> | Breaks | an unobserved row **and** a day with no row — never bridged, never counted as logged |
+> | Output | `currentRun` (the run ending on the last closed day, or `null` if that day was not logged), `longestRun` (most recent on a tie), `observedDays`, and `evidence` = the longest run's dates |
+> | Key | `streak:logged_days` (satisfies `chk_pattern_key_kind`) |
+> | Rejections | `cold_start`, `no_streak` |
+>
+> A run under way when the window opens is counted from the window's first day. No strength, score,
+> caveat or label is produced.
+>
+> **Why streak cannot emit yet.** D10 decides no `strength` in [0,1] and no `actionability` for
+> this kind, so a streak cannot be ranked. The stored `evidence` is a subject/object series that a
+> run of dates does not fit, and `toDetectedPattern` accepts correlations only (D6). The English
+> caveat copy for streak is also open (D6), though a missing caveat does not hide a pattern.
+>
+> **Why frequency is not built.** All three of its documented outputs are underspecified or blocked:
+>
+> | Output | Blocker |
+> |---|---|
+> | Most-repeated foods | No counting unit: per meal item, per meal or per day are all plausible and give different counts. The existing repository only counts *distinct* foods (D14 names its source, not its unit). |
+> | Weekday/weekend logging split | No emission rule: D16's "≥ 4 occurrences" does not say what makes a split a pattern. |
+> | Skip-reason distribution | Data-blocked: nothing writes `workout_sessions` (D3). |
+>
+> Not in this increment: emission for any of these kinds, persistence or serving changes, caveat copy,
+> and the cold-start gate for timing and trend.
+
 ---
 
 ## 4. Layer 3 — Ranking and lifecycle
@@ -322,7 +364,7 @@ keep repeating a claim that the data no longer supports.
 > | Historical backfill with the per-user watermark (5.3C-3, below, D17) | **implemented** |
 > | Retention job, production wiring of `PatternsEvidenceSource` (today `NO_PATTERN_ENGINE`) | **planned** |
 > | `/api/patterns`, `/:id/series`, `/:id/dismiss`; nullable caveat in the published API; Vietnamese and other-kind caveat copy; narration | **planned** |
-> | Timing, trend, frequency, streak detectors | **blocked** (`registry.ts`) |
+> | Timing, trend, frequency, streak detectors | **blocked** (`registry.ts`) — streak assessment and the D16 cold-start gate built in 5.3D; frequency not built |
 >
 > **As built (Phase 5.3C-1) — detection orchestration.** `PatternDetectionService.runForUser(userId,
 > targetDate)` (`server/src/modules/patterns/pattern-detection.service.ts`) runs one user for one
@@ -474,6 +516,11 @@ about their own life — which costs more trust than the insight was ever worth.
 | 7–13 | Frequency and streak patterns only — no correlations |
 | 14–29 | Correlations with `n ≥ 10` on curated pairs |
 | 30+ | Full detector set including trends and timing |
+
+> **Superseded for the long-term families by D16** (`PATTERN_ENGINE_DECISIONS.md`): timing, trend,
+> frequency and streak all require **≥ 30 observed days within the 45-day window** — the "7–13" row
+> no longer applies to frequency or streak. Correlation keeps its own gates (§3.1) and takes no
+> day-count gate. Built as `cold-start.ts` (5.3D); applied by the streak assessment only so far.
 
 **AURA says nothing rather than something premature.** The frontend already has copy for this
 posture; the engine must earn the right to make claims. A correlation from 4 days of data is

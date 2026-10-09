@@ -28,7 +28,7 @@
 | D13 | Noise fixture vs frequency/streak | **RESOLVED** — noise fixture covers inferential detectors | — |
 | D14 | Data source per detector | **RESOLVED** | — |
 | D15 | Plan-change recomputation | **RESOLVED** — nightly job is authoritative for closed days | — |
-| D16 | Frequency/streak emission threshold and cold-start day count | **RESOLVED** — observedDays ≥ 30 in a 45-day window; frequency ≥ 4, streak ≥ 3 | — (decided; detectors still blocked, not implemented) |
+| D16 | Frequency/streak emission threshold and cold-start day count | **RESOLVED** — observedDays ≥ 30 in a 45-day window; frequency ≥ 4, streak ≥ 3 | — (cold start and streak assessment built in 5.3D; nothing emits; frequency not built) |
 | D17 | Re-running an older day (backfill) against newer lifecycle state | **RESOLVED** — per-user watermark; a run before it is historical and writes no lifecycle change | — (implemented, 5.3C-3) |
 
 ---
@@ -411,6 +411,13 @@ still blocks timing, trend, frequency and streak; nothing below runs until a fam
 
 **Still blocking the families** (`registry.ts`): trend waits on D9's magnitude; timing on its
 noise pass-rate and the `workout_sessions` write path; frequency/streak are not built.
+
+> **As built (Phase 5.3D).** §1 is `server/src/patterns/cold-start.ts`. §3 is the logging-streak
+> assessment in `server/src/patterns/streak.ts`, which applies §1 first. Neither changes what is
+> emitted. Still open for this family: a `strength` in [0,1] and an `actionability` (D10), a stored
+> evidence shape (D6), and — for frequency — what an occurrence is (most-repeated foods: per item,
+> per meal or per day) and what makes a weekday/weekend split a pattern (§2's "≥ 4 occurrences"
+> does not say). §1 is not yet applied to timing or trend; that is part of unblocking each.
 
 ## D17 — Historical re-runs and the per-user watermark
 

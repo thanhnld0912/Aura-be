@@ -11,7 +11,7 @@ import { welchTTest } from './statistics.js';
  * **This module evaluates; it does not emit.** A result that clears every §3.3 gate is a
  * *candidate*, and whether a candidate may become a pattern is the registry's call
  * (`registry.ts`). Timing is not allowed to emit yet: §7 reserves it for users with "30+"
- * days of data, and how those days are counted is open (PATTERN_ENGINE_DECISIONS.md D16).
+ * days of data — D16 has decided that count (`cold-start.ts`), but it is not applied here yet.
  * Its inputs are also data-blocked in production — nothing writes `workout_sessions` (D3) —
  * so today it runs on fixtures only.
  *

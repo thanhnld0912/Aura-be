@@ -68,7 +68,12 @@ describe('detector registry', () => {
     expect(DETECTOR_REGISTRY.timing.blockedBy.join(' ')).toMatch(/D16/);
     expect(DETECTOR_REGISTRY.trend.blockedBy.join(' ')).toMatch(/D9/);
     expect(DETECTOR_REGISTRY.trend.blockedBy.join(' ')).toMatch(/D16/);
-    expect(DETECTOR_REGISTRY.frequency_streak.blockedBy.join(' ')).toMatch(/D16/);
+    // D16 decided the frequency/streak thresholds; what still blocks the family is D10
+    // (no strength or actionability for these kinds), D6 (no stored shape for their
+    // evidence) and frequency not being built.
+    expect(DETECTOR_REGISTRY.frequency_streak.blockedBy.join(' ')).toMatch(/D10/);
+    expect(DETECTOR_REGISTRY.frequency_streak.blockedBy.join(' ')).toMatch(/D6/);
+    expect(DETECTOR_REGISTRY.frequency_streak.blockedBy.join(' ')).toMatch(/frequency — not built/);
     for (const registration of Object.values(DETECTOR_REGISTRY)) {
       expect(registration.emits).toBe(registration.blockedBy.length === 0);
     }
