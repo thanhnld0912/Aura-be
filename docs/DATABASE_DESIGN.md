@@ -482,6 +482,24 @@ Vietnamese food dataset, seeded in Phase 3 — these are authored, never expired
 `food_portions` is what makes "2 chén cơm" resolvable: `label_vi='1 chén'`, `grams=150`.
 Household measures are the actual unit of Vietnamese meal logging; grams are the exception.
 
+**Portion identity is stable across re-seeds.** Only the seed (`seeds/seed-foods.ts`) writes
+`food_portions`, and only for local foods. A portion is identified by its food and its English
+`label`, normalised (`portionKey`: NFC, trimmed, whitespace collapsed, lower-cased); the
+dataset validator refuses a food that repeats one. Re-running the seed reconciles on that key:
+
+- a portion still in the dataset keeps its `id` and is updated in place, only when a field
+  changed — correcting `grams` or `label_vi` is an edit, not a replacement;
+- a new label is inserted, once;
+- a portion that has left the dataset is **kept**, because `meal_items.portion_id` may point
+  at it; it only loses `is_default`. Renaming a label therefore adds a portion rather than
+  editing one, and the old row stays offered by search (no retired flag yet);
+- two existing rows with one key are refused rather than merged, and nothing is written.
+
+The run is one transaction under an advisory lock, so a failure changes nothing and two
+deploys seeding at once cannot duplicate a portion. Until this, the seed deleted and
+re-inserted every portion, so each run issued new ids and the FK below nulled every logged
+meal's `portion_id` (`tests/integration/seed-foods.test.ts`).
+
 ### 3.7 `patterns` — statistics, stored
 
 Written by the Pattern Engine (`PATTERN_ENGINE.md`), not by an LLM. `narrative` is filled in
@@ -623,7 +641,8 @@ equidistant candidates cannot flip between runs.
 - **`meal_items.portion_id`** — which `food_portions` row produced `grams_resolved`.
   Provenance for the portion, the way `source` is provenance for the nutrition.
   `ON DELETE SET NULL`, because evicting a portion definition must not rewrite what the
-  user confirmed.
+  user confirmed. That is also why the seed never deletes a portion (§3.6): a deleted row
+  silently erases the provenance of every meal measured in it.
 
 The `search_name` backfill in `0004` is written defensively — `ADD COLUMN … NOT NULL` with
 no default fails the moment the table is not empty, and a migration that only works on an

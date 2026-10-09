@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { VN_FOODS, validateDataset } from '../../src/database/seeds/vn-foods/index.js';
+import { VN_FOODS, portionKey, validateDataset } from '../../src/database/seeds/vn-foods/index.js';
 import { normalizeFoodName } from '../../src/nutrition/normalize.js';
 
 /**
@@ -187,5 +187,58 @@ describe('the dataset validator', () => {
         { ...base, portions: [{ label: 'x', grams: 0, isDefault: true }] },
       ]),
     ).toContainEqual(expect.stringContaining('grams 0'));
+  });
+
+  // A portion's label is its identity across re-seeds (`portionKey`): a duplicate would
+  // make the seed unable to tell which row a logged meal points at.
+  it('rejects two portions of one food that share a label once normalised', () => {
+    expect(
+      validateDataset([
+        {
+          ...base,
+          portions: [
+            { label: '1 bowl', grams: 150, isDefault: true },
+            { label: '1  BOWL', grams: 160 },
+          ],
+        },
+      ]),
+    ).toContainEqual(expect.stringContaining('duplicate portion'));
+  });
+
+  it('rejects more than one default portion', () => {
+    expect(
+      validateDataset([
+        {
+          ...base,
+          portions: [
+            { label: '1 bowl', grams: 150, isDefault: true },
+            { label: 'large bowl', grams: 300, isDefault: true },
+          ],
+        },
+      ]),
+    ).toContainEqual(expect.stringContaining('2 default portions'));
+  });
+
+  it('rejects an empty or padded portion label', () => {
+    for (const label of ['', ' 1 bowl']) {
+      expect(
+        validateDataset([{ ...base, portions: [{ label, grams: 150, isDefault: true }] }]),
+      ).toContainEqual(expect.stringContaining('empty or padded'));
+    }
+  });
+});
+
+describe('portionKey', () => {
+  it('ignores case, spacing and Unicode composition, and nothing else', () => {
+    expect(portionKey('1 Bowl')).toBe(portionKey('1  bowl'));
+    expect(portionKey('Nửa chén')).toBe(portionKey('nửa chén'.normalize('NFD')));
+    expect(portionKey('1 bowl')).not.toBe(portionKey('large bowl'));
+  });
+
+  it('is unique within every food of the shipped dataset', () => {
+    for (const food of VN_FOODS) {
+      const keys = food.portions.map((portion) => portionKey(portion.label));
+      expect(new Set(keys).size, food.externalId).toBe(keys.length);
+    }
   });
 });

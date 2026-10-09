@@ -30,7 +30,9 @@ async function main(): Promise<void> {
     const result = await seedFoods(db);
     console.log(
       `Seeded ${result.foodsUpserted} foods and ${result.portionsUpserted} portions ` +
-        `into the local Vietnamese dataset.`,
+        `into the local Vietnamese dataset (portions: ${result.portionsInserted} inserted, ` +
+        `${result.portionsUpdated} updated, ${result.portionsUnchanged} unchanged, ` +
+        `${result.portionsRetained} retained from earlier datasets).`,
     );
   } finally {
     await sql.end({ timeout: 5 });

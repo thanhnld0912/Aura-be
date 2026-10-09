@@ -126,7 +126,8 @@ git clone <aura-be-repo> AURA-BE
 cd AURA-BE/server && npm install
 cp .env.example .env                # fill in keys
 npm run db:migrate
-npm run db:seed                     # system habits + Vietnamese food dataset
+npm run db:seed                     # Vietnamese food dataset; safe to re-run — portion ids are kept
+                                    # (system habits are created per user, not seeded)
 
 # once — frontend
 git clone <aura-fe-repo> AURA-FE
