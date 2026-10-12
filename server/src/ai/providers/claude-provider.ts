@@ -1,4 +1,7 @@
-import Anthropic, {
+// The named export, not the default: it is the same class, and it still resolves when a
+// build reads the package's CommonJS typings, where a default import is the module namespace.
+import {
+  Anthropic,
   APIConnectionTimeoutError,
   APIConnectionError,
   APIError,
