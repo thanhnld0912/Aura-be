@@ -103,6 +103,25 @@ export class PatternsRepository {
       });
   }
 
+  /**
+   * This user's watermark and active patterns as **one** snapshot (read-only, repeatable
+   * read). Serving compares the two — evidence is current only relative to the run that
+   * produced it — and a nightly run committing between two separate reads would otherwise
+   * pair an old watermark with new rows, or the reverse.
+   */
+  async currentState(userId: string): Promise<{ evaluatedThrough: string | null; active: PatternRow[] }> {
+    return this.db.transaction(
+      async (tx) => {
+        const snapshot = new PatternsRepository(tx as unknown as Db);
+        return {
+          evaluatedThrough: await snapshot.evaluatedThrough(userId),
+          active: await snapshot.listActive(userId),
+        };
+      },
+      { isolationLevel: 'repeatable read', accessMode: 'read only' },
+    );
+  }
+
   async findByUserAndKey(userId: string, key: string): Promise<PatternRow | undefined> {
     return this.db.query.patterns.findFirst({
       where: and(eq(patterns.userId, userId), eq(patterns.key, key)),

@@ -46,12 +46,14 @@ export async function createDatabaseHarness(
     weeklyStoryGenerator?: WeeklyStoryGenerator;
     patternEvidence?: PatternEvidenceSource;
     agentReplyGenerator?: AgentReplyGenerator;
+    /** Extra environment for this app only — never `DATABASE_URL`, which is always the test database. */
+    env?: Record<string, string>;
   } = {},
 ): Promise<DatabaseHarness> {
   const url = TEST_DATABASE_URL;
   if (!url) throw new Error('TEST_DATABASE_URL is not set');
 
-  const env = testEnv({ DATABASE_URL: url });
+  const env = testEnv({ ...options.env, DATABASE_URL: url });
   const database = createDatabase(env);
   const supabaseAuth = stubSupabaseAuth();
   const app = await buildApp({

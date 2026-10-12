@@ -29,7 +29,7 @@ export interface BuildAppOptions {
   imageMealParser?: ImageMealParser;
   /** Injected by tests so the weekly story can run over a scripted provider. */
   weeklyStoryGenerator?: WeeklyStoryGenerator;
-  /** Injected by tests in place of the Pattern Engine, which is Phase 5. */
+  /** Injected by tests in place of the source `PATTERN_ENGINE_ENABLED` would select. */
   patternEvidence?: PatternEvidenceSource;
   /** Injected by tests so the chat agent can run over a scripted provider. */
   agentReplyGenerator?: AgentReplyGenerator;

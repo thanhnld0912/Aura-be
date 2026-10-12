@@ -12,7 +12,9 @@ import { isFactualKind } from '../patterns/registry.js';
  * correlation computed ad hoc inside a narration feature is exactly the "LLM-adjacent
  * statistics" `PATTERN_ENGINE.md` §1 was written to prevent. So consumers read patterns
  * through `PatternEvidenceSource`. `NO_PATTERN_ENGINE` says, honestly, that there is no
- * engine; `PatternsEvidenceSource` (`modules/patterns/`) serves the persisted `patterns`.
+ * engine; `PatternsEvidenceSource` (`modules/patterns/`) serves the persisted `patterns`,
+ * and only while the evaluation behind them is current (`patterns/freshness.ts`). Which of
+ * the two an API process uses is `PATTERN_ENGINE_ENABLED`, off by default.
  *
  * ## Who owns what
  *
@@ -142,20 +144,75 @@ export interface PatternPeriodRequest {
   today: string;
 }
 
+/**
+ * Why a source cannot say what patterns a period holds. Each is a different statement, and
+ * none of them is "no pattern was found":
+ *
+ * - `no_engine` — patterns are not served at all (the consumer is off).
+ * - `period_not_current` — the source holds current state and the period is a past one.
+ * - `not_evaluated` — no authoritative detection run has completed for this user.
+ * - `evaluation_stale` — the last one is too old to be presented as current.
+ * - `evaluation_invalid` — the stored evaluation state cannot be trusted (a watermark that
+ *   names a day not closed yet, or evidence newer than the watermark).
+ * - `source_failed` — the source threw while reading. Never produced by a source itself:
+ *   the consumer records it when a read fails (`InsightsService`), so a failure is not
+ *   mistaken for any of the states above — least of all for an evaluation that found nothing.
+ */
+export const PATTERN_UNAVAILABLE_REASONS = [
+  'no_engine',
+  'period_not_current',
+  'not_evaluated',
+  'evaluation_stale',
+  'evaluation_invalid',
+  'source_failed',
+] as const;
+
+export type PatternUnavailableReason = (typeof PATTERN_UNAVAILABLE_REASONS)[number];
+
+/** "Cannot say", with the reason. */
+export interface PatternsUnavailable {
+  unavailable: PatternUnavailableReason;
+}
+
+export type PatternEvidenceAnswer = readonly unknown[] | PatternsUnavailable | null;
+
 export interface PatternEvidenceSource {
   /**
    * Patterns relevant to a period. Returns `unknown[]` because this is a boundary: the
    * engine is another subsystem, and its output is validated here like any other input.
    *
-   * `null` means **the source cannot say** — there is no engine, or the period is one it
-   * holds no record of (a past week, for a source of current state). That is different from
-   * `[]`, an engine that looked and found nothing: the first is a limitation to disclose,
-   * the second is a result.
+   * An array — `[]` included — is a **result**: an evaluation current enough to speak for
+   * the period looked, and this is what it found. Anything else means **the source cannot
+   * say**: `{ unavailable: reason }`, or a bare `null`, which reads as `no_engine`. That is
+   * a limitation to disclose, never a result — a source must not answer `[]` unless an
+   * evaluation actually stands behind it.
    */
-  forPeriod(userId: string, request: PatternPeriodRequest): Promise<readonly unknown[] | null>;
+  forPeriod(userId: string, request: PatternPeriodRequest): Promise<PatternEvidenceAnswer>;
 }
 
-/** The source while no detection run writes patterns. It does not pretend to have looked. */
+/**
+ * A source's answer, split into what the selectors read (`candidates`, `null` when it
+ * cannot say) and why it cannot. Anything that is neither an array nor a known reason is
+ * treated as `no_engine`: an answer this boundary does not understand is not a result.
+ */
+export function readPatternAnswer(answer: PatternEvidenceAnswer): {
+  candidates: readonly unknown[] | null;
+  unavailable: PatternUnavailableReason | null;
+} {
+  if (Array.isArray(answer)) return { candidates: answer as readonly unknown[], unavailable: null };
+  const reason = answer !== null && typeof answer === 'object' && 'unavailable' in answer ? answer.unavailable : null;
+  return {
+    candidates: null,
+    unavailable: (PATTERN_UNAVAILABLE_REASONS as readonly unknown[]).includes(reason)
+      ? (reason as PatternUnavailableReason)
+      : 'no_engine',
+  };
+}
+
+/**
+ * The source while patterns are not served (`PATTERN_ENGINE_ENABLED` off, the default). It
+ * reads nothing and does not pretend to have looked.
+ */
 export const NO_PATTERN_ENGINE: PatternEvidenceSource = {
   async forPeriod() {
     return null;

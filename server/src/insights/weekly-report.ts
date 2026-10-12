@@ -11,6 +11,7 @@ import type {
   PatternFactSelection,
   PatternSelection,
   PatternSelectionStatus,
+  PatternUnavailableReason,
   RankedPatternEvidence,
 } from './pattern-evidence.js';
 
@@ -112,6 +113,8 @@ export const LIMITATION_CODES = [
   'no_checkins',
   'no_sleep_logs',
   'pattern_engine_unavailable',
+  'pattern_evaluation_pending',
+  'pattern_evaluation_stale',
   'previous_week_unavailable',
   'previous_week_insufficient',
 ] as const;
@@ -166,6 +169,11 @@ export interface WeeklyReportInput {
    * no source was asked, which is reported as `unavailable` — never as "none".
    */
   patternFacts?: PatternFactSelection;
+  /**
+   * Why the source could not say, when `patterns` is `unavailable` — it picks the limitation
+   * the report discloses. Absent reads as `no_engine`.
+   */
+  patternsUnavailable?: PatternUnavailableReason | null;
 }
 
 // ── Output ─────────────────────────────────────────────────────────────────────
@@ -325,7 +333,9 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReport {
     comparison,
     patterns: publishable(input.patterns),
     patternFacts: publishableFacts(input.patternFacts ?? { status: 'unavailable', items: [] }),
-    dataQuality: { limitations: limitationsOf(current, comparison.status, input.patterns.status) },
+    dataQuality: {
+      limitations: limitationsOf(current, comparison.status, input.patterns.status, input.patternsUnavailable ?? null),
+    },
   };
 }
 
@@ -659,10 +669,23 @@ function habitLogCount(week: WeekFigures): number {
   return week.habits.logs ? sum(Object.values(week.habits.logs)) : 0;
 }
 
+/**
+ * The limitation that discloses unavailable patterns. Never evaluated and out of date are
+ * said as such; every other reason — no engine, a past week, an evaluation state that cannot
+ * be trusted, a read that failed — is the general "not available". The API has no code of its
+ * own for those last two; they are told apart in the server log, not in the response.
+ */
+function patternLimitation(reason: PatternUnavailableReason | null): LimitationCode {
+  if (reason === 'not_evaluated') return 'pattern_evaluation_pending';
+  if (reason === 'evaluation_stale') return 'pattern_evaluation_stale';
+  return 'pattern_engine_unavailable';
+}
+
 function limitationsOf(
   week: WeekFigures,
   comparison: ComparisonStatus,
   patterns: PatternSelectionStatus,
+  patternsUnavailable: PatternUnavailableReason | null,
 ): LimitationCode[] {
   const limitations: LimitationCode[] = [];
   if (!week.period.isComplete) limitations.push('week_in_progress');
@@ -674,7 +697,7 @@ function limitationsOf(
   if (week.habits.status === 'no_data') limitations.push('no_habit_logs');
   if (week.checkins.status === 'no_data') limitations.push('no_checkins');
   if (week.sleep.status === 'no_data') limitations.push('no_sleep_logs');
-  if (patterns === 'unavailable') limitations.push('pattern_engine_unavailable');
+  if (patterns === 'unavailable') limitations.push(patternLimitation(patternsUnavailable));
   if (comparison === 'unavailable') limitations.push('previous_week_unavailable');
   else if (comparison === 'insufficient_data') limitations.push('previous_week_insufficient');
   return limitations;

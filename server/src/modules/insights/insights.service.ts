@@ -1,4 +1,11 @@
-import { selectPatternEvidence, selectPatternFacts, type PatternEvidenceSource } from '../../insights/pattern-evidence.js';
+import {
+  readPatternAnswer,
+  selectPatternEvidence,
+  selectPatternFacts,
+  type PatternEvidenceAnswer,
+  type PatternEvidenceSource,
+  type PatternPeriodRequest,
+} from '../../insights/pattern-evidence.js';
 import {
   buildWeeklyReport,
   DAYS_IN_WEEK,
@@ -37,12 +44,20 @@ export interface WeeklyStoryResult {
   story: WeeklyStory | null;
 }
 
+/** The structured logger's two calls this service uses (pino / Fastify's logger). */
+export interface InsightsLogger {
+  warn(context: object, message: string): void;
+  error(context: object, message: string): void;
+}
+
 export interface InsightsServiceDeps {
   repository: InsightsRepository;
   meals: Pick<MealsRepository, 'nutritionByDay'>;
   checkins: Pick<CheckinsRepository, 'listRange'>;
   users: Pick<UsersService, 'getProfile'>;
   patterns: PatternEvidenceSource;
+  /** Where a failed or untrustworthy pattern read is recorded. Silent when absent (tests). */
+  logger?: InsightsLogger;
   /** Absent when no Anthropic key is configured; the story then answers 503. */
   storyGenerator?: WeeklyStoryGenerator | undefined;
   /** Injected for tests, as `CheckinsService` does with its clock. */
@@ -136,11 +151,20 @@ export class InsightsService {
     const previousWeekStart = addLocalDays(week.weekStart, -DAYS_IN_WEEK);
     const weekEnd = addLocalDays(week.weekStart, DAYS_IN_WEEK - 1);
 
-    const [current, previous, candidates] = await Promise.all([
+    const [current, previous, answer] = await Promise.all([
       this.loadWeek(user.id, week.weekStart, week.today),
       this.loadWeek(user.id, previousWeekStart, week.today),
-      this.deps.patterns.forPeriod(user.id, { from: week.weekStart, to: weekEnd, today: week.today }),
+      this.readPatterns(user.id, { from: week.weekStart, to: weekEnd, today: week.today }),
     ]);
+
+    // One answer feeds the ranked list and the facts, so the two can never disagree about
+    // whether — or why — patterns are unavailable.
+    const { candidates, unavailable } = readPatternAnswer(answer);
+    if (unavailable === 'evaluation_invalid') {
+      // Not a failure of this request, but a stored state that should not exist: say so once
+      // per read, with nothing of the user's data — the client is only told "unavailable".
+      this.deps.logger?.warn({ userId: user.id, today: week.today }, 'pattern evaluation state is not trustworthy');
+    }
 
     return buildWeeklyReport({
       weekStart: week.weekStart,
@@ -150,7 +174,30 @@ export class InsightsService {
       previous,
       patterns: selectPatternEvidence(candidates, week.today),
       patternFacts: selectPatternFacts(candidates),
+      patternsUnavailable: unavailable,
     });
+  }
+
+  /**
+   * The pattern source's answer — or, if the source throws, `source_failed`.
+   *
+   * Patterns are one optional section of the report, read from another subsystem. A failure
+   * there is not a reason to refuse the week's own figures, so it is not rethrown; and it is
+   * not a result either, so it becomes "cannot say" — `unavailable`, never `none` — and is
+   * logged as an error with the failure's name and message only. This is the one catch on
+   * this path, and it covers the pattern read alone: the week's own queries fail the request
+   * as before, as does anything thrown while the report is being built.
+   */
+  private async readPatterns(userId: string, request: PatternPeriodRequest): Promise<PatternEvidenceAnswer> {
+    try {
+      return await this.deps.patterns.forPeriod(userId, request);
+    } catch (error) {
+      this.deps.logger?.error(
+        { userId, err: error instanceof Error ? { name: error.name, message: error.message } : { name: 'NonError', message: String(error) } },
+        'pattern evidence could not be read; reported as unavailable',
+      );
+      return { unavailable: 'source_failed' };
+    }
   }
 
   /**

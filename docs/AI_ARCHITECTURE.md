@@ -276,9 +276,11 @@ items or habit logs, for those rates) on *both* sides; below that `insufficient_
 week with no logs at all is `unavailable`. A change under 10 points is `flat` — presentation, not
 statistics.
 
-**Patterns.** The engine does not exist. `NO_PATTERN_ENGINE` returns `null`, which the report shows
-as `patterns.status = "unavailable"` plus a limitation — different from `"none"`, an engine that
-found nothing. The consumer validates, keeps `active` only, ranks by the engine's own score and
+**Patterns.** Served only with `PATTERN_ENGINE_ENABLED=true`. Off — the default —
+`NO_PATTERN_ENGINE` returns `null`, which the report shows as `patterns.status = "unavailable"`
+plus a limitation — different from `"none"`, an evaluation that found nothing. On, the persisted
+source answers the same way for a user never evaluated or whose evaluation is out of date
+(`PATTERN_ENGINE.md` §4), so the story is never handed a pattern nothing current stands behind. The consumer validates, keeps `active` only, ranks by the engine's own score and
 caps at three. It deliberately does **not** re-check `n ≥ 10`, `|r| ≥ 0.45` and the rest: those
 are the engine's gates, and a second copy would be a second place for them to drift.
 

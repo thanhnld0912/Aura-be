@@ -83,6 +83,8 @@ export const LIMITATION_STATEMENTS: Record<LimitationCode, string> = {
   no_checkins: 'No check-ins were logged, so mood and energy this week are unknown.',
   no_sleep_logs: 'No sleep was logged, so sleep this week is unknown, not zero.',
   pattern_engine_unavailable: 'Pattern detection is not available yet, so no patterns can be reported.',
+  pattern_evaluation_pending: 'Patterns have not been evaluated for this person yet, so none can be reported.',
+  pattern_evaluation_stale: 'The last pattern evaluation is out of date, so no patterns can be reported.',
   previous_week_unavailable: 'The previous week has no logs, so nothing can be compared with it.',
   previous_week_insufficient: 'The previous week has too little data for a fair comparison.',
 };

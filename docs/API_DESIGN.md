@@ -530,8 +530,8 @@ manufacturing an observation from one data point.
 > user's timezone; omitted means the current week. Returns `period` (with `daysElapsed` and
 > `isComplete`), `coverage`, seven `days`, `nutrition`, `activity`, `plan`, `habits`,
 > `checkins`, `sleep`, `comparison` (previous week, rates only, each metric `available` |
-> `insufficient_data` | `unavailable`), `patterns` (`unavailable` until the Pattern Engine
-> exists), `patternFacts` and `dataQuality.limitations`. Every section is `ok` or `no_data`; with no data its
+> `insufficient_data` | `unavailable`), `patterns`, `patternFacts` and
+> `dataQuality.limitations`. Every section is `ok` or `no_data`; with no data its
 > behaviour figures are `null`, never `0`. Confirmed meals only — drafts are excluded. No
 > calorie figures: those are `GET /api/nutrition/weekly`, which honours `showCalories`.
 >
@@ -543,6 +543,34 @@ manufacturing an observation from one data point.
 > `strength` is the run's share of the 45-day window — a description, not a confidence; there is no
 > `pValue`. `caveat` is engine-owned text and may be `null` rather than hide the fact. Like
 > `patterns`, it is current state: a past week is `unavailable`. The story never narrates it.
+> `current` is relative to the evidence's own window — the run ends on `windowEnd`, the day the
+> evidence was evaluated through — so a client states it as of `windowEnd`, not as of today.
+>
+> **When patterns are `unavailable`** (Phase 5.4A). `patterns` and `patternFacts` are selected from
+> one answer of the pattern source, so they are `unavailable` **together** and for the same reason —
+> never one without the other. When the source can answer, each section has its **own** status:
+> `patterns` is `available` or `none` by the ranked kinds, `patternFacts` by the factual ones. A
+> current evaluation holding a logging streak and no qualifying correlation is `patterns: none`
+> beside `patternFacts: available`. So `none` in either section means an evaluation current enough
+> to speak for today found nothing of that kind — it is never how "not evaluated yet" is reported,
+> and an empty `patterns.items` alone says nothing about whether an evaluation happened: read
+> `status`. When both are `unavailable`, `dataQuality.limitations` says why, with exactly one of:
+>
+> | Limitation | Meaning |
+> |---|---|
+> | `pattern_engine_unavailable` | Patterns are not served (`PATTERN_ENGINE_ENABLED` off, the default), the week asked for is a past one, the stored evaluation state cannot be trusted, or reading the patterns failed. |
+> | `pattern_evaluation_pending` | No detection run has completed for this user yet. Not "no pattern found". |
+> | `pattern_evaluation_stale` | The last completed run is more than one closed day behind the user's last closed day, so its evidence is not presented as current. |
+>
+> The two new codes are additive values of the existing `limitations` enum; no field was added.
+> Clients must tolerate limitation codes they do not know.
+>
+> **A failed pattern read does not fail the report** (5.4A.1). If the pattern source throws, the
+> rest of the week is still returned: both sections are `unavailable` with
+> `pattern_engine_unavailable`, and the failure is logged server-side. It is never reported as
+> `none`. The response has no code that tells a failed read from a disabled engine; that would be
+> a new enum value and is not part of this contract. A failure of the week's own queries is still an
+> error response.
 >
 > **`POST /api/insights/weekly/story`** `{ weekStart?: date }` — `ai-heavy` (3/day). Returns
 > `{ status, report, story }`, where `status` is `ready`, `insufficient_data` (fewer than 3

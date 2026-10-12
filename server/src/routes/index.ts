@@ -32,7 +32,7 @@ import {
   ClaudeAgentReplyGenerator,
   type AgentReplyGenerator,
 } from '../agent/agent-generator.js';
-import { NO_PATTERN_ENGINE, type PatternEvidenceSource } from '../insights/pattern-evidence.js';
+import type { PatternEvidenceSource } from '../insights/pattern-evidence.js';
 import {
   ClaudeWeeklyStoryGenerator,
   type WeeklyStoryGenerator,
@@ -41,6 +41,7 @@ import { MealsRepository } from '../modules/meals/meals.repository.js';
 import { mealsRoutes } from '../modules/meals/meals.routes.js';
 import { MealsService } from '../modules/meals/meals.service.js';
 import { nutritionRoutes } from '../modules/nutrition/nutrition.routes.js';
+import { createPatternEvidenceSource } from '../modules/patterns/patterns-evidence-source.js';
 import { AiService } from '../ai/ai.service.js';
 import { AiRunsRepository } from '../ai/ai-runs.repository.js';
 import { estimateCost } from '../ai/pricing.js';
@@ -91,8 +92,9 @@ export interface RouteDependencies {
   /** Injected by tests so the weekly story runs over a scripted provider. */
   weeklyStoryGenerator?: WeeklyStoryGenerator;
   /**
-   * Injected by tests to stand in for the Pattern Engine, which does not exist yet
-   * (Phase 5). Production uses `NO_PATTERN_ENGINE`, which reports it as unavailable.
+   * Injected by tests in place of the configured source. Otherwise `PATTERN_ENGINE_ENABLED`
+   * decides (`createPatternEvidenceSource`): off by default, which reports patterns as
+   * unavailable and reads nothing.
    */
   patternEvidence?: PatternEvidenceSource;
   /** Injected by tests so the agent runs over a scripted provider. */
@@ -257,12 +259,18 @@ export async function registerRoutes(
     imageParser: options.imageMealParser ?? createImageMealParser(env, db),
   });
 
+  // Once per process, so an operator can read from the log which source this API serves.
+  if (!options.patternEvidence) {
+    app.log.info({ patternEngineEnabled: env.PATTERN_ENGINE_ENABLED }, 'pattern consumer configured');
+  }
+
   const insightsService = new InsightsService({
     repository: new InsightsRepository(db),
     meals: mealsRepository,
     checkins: checkinsRepository,
     users: usersService,
-    patterns: options.patternEvidence ?? NO_PATTERN_ENGINE,
+    patterns: options.patternEvidence ?? createPatternEvidenceSource(env, db),
+    logger: app.log,
     storyGenerator: options.weeklyStoryGenerator ?? createWeeklyStoryGenerator(env, db),
   });
 

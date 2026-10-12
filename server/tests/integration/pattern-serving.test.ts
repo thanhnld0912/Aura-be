@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PatternEvidenceSource } from '../../src/insights/pattern-evidence.js';
-import { selectPatternEvidence } from '../../src/insights/pattern-evidence.js';
+import { readPatternAnswer, selectPatternEvidence } from '../../src/insights/pattern-evidence.js';
 import { addLocalDays, startOfLocalWeek, todayIn } from '../../src/lib/local-date.js';
 import { PatternsEvidenceSource } from '../../src/modules/patterns/patterns-evidence-source.js';
 import { PatternsRepository } from '../../src/modules/patterns/patterns.repository.js';
@@ -20,6 +20,8 @@ import { createDatabaseHarness, hasDatabase, testUserId, type DatabaseHarness } 
  *
  * The rows are real detector output (`detectCorrelations` → `toDetectedPattern`) written by
  * the repository. The report runs on the real clock, so dates are taken relative to today.
+ * Each user is given the watermark an authoritative run for yesterday would have left: the
+ * source serves nothing for a user no run has reached (`pattern-consumer.test.ts`).
  */
 describe.skipIf(!hasDatabase)('pattern serving', () => {
   let harness: DatabaseHarness;
@@ -33,6 +35,9 @@ describe.skipIf(!hasDatabase)('pattern serving', () => {
   const TIMEZONE = 'Asia/Ho_Chi_Minh';
   const today = () => todayIn(TIMEZONE);
   const yesterday = () => addLocalDays(today(), -1);
+
+  /** What an authoritative run for `day` records beside its patterns. */
+  const evaluated = (userId: string, day = yesterday()) => repository.advanceEvaluatedThrough(userId, day, new Date());
 
   const EMPTY = Object.fromEntries(METRIC_KEYS.map((key) => [key, null])) as Record<MetricKey, number | null>;
 
@@ -103,10 +108,11 @@ describe.skipIf(!hasDatabase)('pattern serving', () => {
   it('serves a stored pattern unchanged: the statistics are the detector output', async () => {
     const { gapMeals } = detections(yesterday());
     const { pattern } = await repository.recordDetection(userA, gapMeals, new Date());
+    await evaluated(userA);
 
-    const served = await source.forPeriod(userA, { from: startOfLocalWeek(today()), to: addLocalDays(startOfLocalWeek(today()), 6), today: today() });
+    const served = (await source.forPeriod(userA, { from: startOfLocalWeek(today()), to: addLocalDays(startOfLocalWeek(today()), 6), today: today() })) as Array<{ strength: number }>;
     expect(served).toHaveLength(1);
-    expect(served![0]).toEqual({
+    expect(served[0]).toEqual({
       id: pattern.id,
       key: gapMeals.key,
       kind: 'correlation',
@@ -130,7 +136,7 @@ describe.skipIf(!hasDatabase)('pattern serving', () => {
       statusChangedAt: pattern.statusChangedAt.toISOString(),
       caveat: 'This is an association in your own logs, not a cause.',
     });
-    expect(served![0]!.strength).toBeGreaterThan(0);
+    expect(served[0]!.strength).toBeGreaterThan(0);
   });
 
   it('ranks the stored patterns and reports them in the weekly report', async () => {
@@ -138,6 +144,7 @@ describe.skipIf(!hasDatabase)('pattern serving', () => {
     const weak = detections(yesterday(), true);
     await repository.recordDetection(userA, weak.gapMeals, new Date());
     await repository.recordDetection(userA, strong.moodAdherence, new Date());
+    await evaluated(userA);
 
     const expected = [weak.gapMeals, strong.moodAdherence]
       .map((d) => ({ key: d.key, score: scorePattern({ ...d, lastDetectedAt: new Date().toISOString() }, today())! }))
@@ -160,6 +167,8 @@ describe.skipIf(!hasDatabase)('pattern serving', () => {
     const { gapMeals, moodAdherence } = detections(yesterday());
     const { pattern: bPattern } = await repository.recordDetection(userB, gapMeals, new Date());
     await repository.recordDetection(userB, moodAdherence, new Date());
+    await evaluated(userA);
+    await evaluated(userB);
 
     const week = { from: startOfLocalWeek(today()), to: addLocalDays(startOfLocalWeek(today()), 6), today: today() };
     expect(await source.forPeriod(userA, week)).toEqual([]);
@@ -177,6 +186,7 @@ describe.skipIf(!hasDatabase)('pattern serving', () => {
     const { pattern: dismissed } = await repository.recordDetection(userA, moodAdherence, new Date());
     await repository.markStale(userA, stale.key, new Date());
     await repository.dismiss(userA, dismissed.id, new Date());
+    await evaluated(userA);
 
     const week = { from: startOfLocalWeek(today()), to: addLocalDays(startOfLocalWeek(today()), 6), today: today() };
     expect(await source.forPeriod(userA, week)).toEqual([]);
@@ -186,11 +196,12 @@ describe.skipIf(!hasDatabase)('pattern serving', () => {
   it('cannot say what a past week held, and reports that as unavailable — not as none', async () => {
     const { gapMeals } = detections(yesterday());
     await repository.recordDetection(userA, gapMeals, new Date());
+    await evaluated(userA);
 
     const lastWeek = addLocalDays(startOfLocalWeek(today()), -7);
     const past = await source.forPeriod(userA, { from: lastWeek, to: addLocalDays(lastWeek, 6), today: today() });
-    expect(past).toBeNull();
-    expect(selectPatternEvidence(past, today())).toEqual({ status: 'unavailable', items: [] });
+    expect(past).toEqual({ unavailable: 'period_not_current' });
+    expect(selectPatternEvidence(readPatternAnswer(past).candidates, today())).toEqual({ status: 'unavailable', items: [] });
 
     const body = await weekly(tokenA, lastWeek);
     expect(body.patterns).toEqual({ status: 'unavailable', items: [] });

@@ -95,10 +95,20 @@ OPEN_FOOD_FACTS_USER_AGENT=AURA/1.0 (contact@example.com)
 CORS_ORIGIN=http://localhost:3000,https://aura.example.com
 RATE_LIMIT_ENABLED=true
 
-# Jobs
-CRON_ENABLED=true
+# Pattern Engine — both off unless set, and independent of each other
+PATTERN_ENGINE_ENABLED=false     # the API serves persisted patterns
+CRON_ENABLED=false               # the scheduler process runs nightly detection
 CRON_TIMEZONE=Asia/Ho_Chi_Minh
 ```
+
+> **Two switches, neither implies the other.** `PATTERN_ENGINE_ENABLED` is read by the API: off
+> (the default, and what an unset variable means) the weekly report says patterns are unavailable
+> and the `patterns` table is never read; on, it serves them behind the freshness policy of
+> `PATTERN_ENGINE.md` §4. It starts no job. `CRON_ENABLED` is read only by
+> `dist/jobs/scheduler.js`, which **writes** to whatever `DATABASE_URL` it is given. Only
+> `true`/`1` turn either on; any other value fails the boot instead of being guessed at.
+> `server/.env.example` ships both as `false` — a local `.env` whose `DATABASE_URL` is not a
+> local database must not carry `CRON_ENABLED=true`.
 
 ```bash
 # AURA-FE/.env.local.example  — separate repository
@@ -160,7 +170,11 @@ docker compose down
 
 Any PostgreSQL 16 will do — Docker is convenient, not required. The suite creates the
 non-owner role its RLS tests need and truncates between tests, so it is safe to point at a
-throwaway database and re-run.
+throwaway database and re-run — and **only** at a throwaway one. The tests never load
+`server/.env`: they connect to `TEST_DATABASE_URL` alone, so set it on the command line to a
+local database and leave it empty in `.env`. `db:migrate`, `db:seed`, `dev`, `start`,
+`start:scheduler`, `patterns:backfill` and the `smoke:*` scripts *do* load `.env` and act on
+its `DATABASE_URL`.
 
 
 ---

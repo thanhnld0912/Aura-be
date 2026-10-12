@@ -100,7 +100,20 @@ export const envSchema = z.object({
   DOCS_ENABLED: booleanish.default('true'),
   MAX_UPLOAD_BYTES: z.coerce.number().int().min(1).default(8_388_608),
 
+  // ── Pattern Engine (Phase 5) ────────────────────────────────────────────
+  /**
+   * Whether the API **serves** persisted patterns (`PatternsEvidenceSource`). Off by default:
+   * unset means the weekly report says patterns are unavailable and never reads the
+   * `patterns` table. Only `true`/`1` turn it on, and any other value fails the boot rather
+   * than being read as either.
+   *
+   * Independent of `CRON_ENABLED`: this flag starts no job and writes nothing, and the
+   * scheduler serves nothing. Each is off unless set on its own.
+   */
+  PATTERN_ENGINE_ENABLED: booleanish.default('false'),
+
   // ── Scheduled jobs (Phase 5) ────────────────────────────────────────────
+  /** Whether `jobs/scheduler.ts` starts. Read by that process only; the API starts no job. */
   CRON_ENABLED: booleanish.default('false'),
   CRON_TIMEZONE: z.string().min(1).default('Asia/Ho_Chi_Minh'),
 });

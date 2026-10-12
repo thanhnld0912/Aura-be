@@ -209,7 +209,9 @@ describe.skipIf(!hasDatabase)('logging streak — persisted and served', () => {
     await service().runForUser(userB, END);
     expect(await streakRow(userA)).toBeDefined();
     expect(await streakRow(userB)).toBeUndefined();
-    expect(await source.forPeriod(userB, { from: END, to: END, today: END })).toEqual([]);
+    // Read on the day after the run: END is then the reader's last closed day, and evaluated.
+    const next = addLocalDays(END, 1);
+    expect(await source.forPeriod(userB, { from: END, to: next, today: next })).toEqual([]);
   });
 
   it('leaves correlation rows, their evidence and their ranking as they were', async () => {
@@ -291,6 +293,8 @@ describe.skipIf(!hasDatabase)('logging streak — persisted and served', () => {
     });
 
     it('never shows one user another user’s streak', async () => {
+      // B is evaluated too, and has nothing logged: "none" is then a result, not an absence.
+      await service(new Date()).runForUser(userB, lastClosed);
       const body = await weekly(tokenB);
       expect(body.patternFacts).toEqual({ status: 'none', items: [] });
     });

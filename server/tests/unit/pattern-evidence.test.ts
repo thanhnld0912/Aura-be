@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_STORY_PATTERNS,
   NO_PATTERN_ENGINE,
+  readPatternAnswer,
   selectPatternEvidence,
 } from '../../src/insights/pattern-evidence.js';
 import { caveatFor } from '../../src/patterns/caveats.js';
@@ -62,7 +63,8 @@ describe('availability', () => {
   it('reports an absent engine as unavailable, distinct from finding nothing', async () => {
     const absent = await NO_PATTERN_ENGINE.forPeriod('user', { from: '2026-09-07', to: '2026-09-13', today: TODAY });
     expect(absent).toBeNull();
-    expect(selectPatternEvidence(absent, TODAY)).toEqual({ status: 'unavailable', items: [] });
+    expect(readPatternAnswer(absent)).toEqual({ candidates: null, unavailable: 'no_engine' });
+    expect(selectPatternEvidence(readPatternAnswer(absent).candidates, TODAY)).toEqual({ status: 'unavailable', items: [] });
     expect(selectPatternEvidence([], TODAY)).toEqual({ status: 'none', items: [] });
   });
 });

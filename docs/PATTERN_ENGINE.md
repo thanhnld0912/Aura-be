@@ -364,10 +364,42 @@ keep repeating a claim that the data no longer supports.
 >   `windowStart`/`windowEnd`/`windowDays`, `evidence`, `detectorVersion`, `status`, the three
 >   timestamps, and `caveat` (`string | null`). No `support`, no stored `score`.
 > - **Adapter.** `PatternsEvidenceSource` (`server/src/modules/patterns/`) reads the user's
->   **active** rows (`PatternsRepository.listActive`) and projects them: labels from the metric
->   catalog, the caveat from `patterns/caveats.ts`, timestamps as ISO strings. It computes no
->   statistic. The table is current state, so a period that does not contain the reader's today
->   (a past week) gets `null` — "cannot say" — never `[]`.
+>   watermark and **active** rows as one snapshot (`PatternsRepository.currentState`) and projects
+>   the rows: labels from the metric catalog, the caveat from `patterns/caveats.ts`, timestamps as
+>   ISO strings. It computes no statistic. The table is current state, so a period that does not
+>   contain the reader's today (a past week) is "cannot say" — never `[]`.
+> - **Activation (5.4A).** The API serves through this adapter only with
+>   `PATTERN_ENGINE_ENABLED=true` (`createPatternEvidenceSource`); unset or `false` it uses
+>   `NO_PATTERN_ENGINE`, which reads nothing. The flag starts no job and `CRON_ENABLED` serves
+>   nothing: the two are independent, and both default to off.
+> - **Evaluation state and freshness (5.4A).** `active` means "not retired by a later run", not
+>   "current": if the nightly job stops, rows stay `active`. So the adapter answers `[]` or rows
+>   **only** when the user's watermark (`pattern_watermarks.evaluated_through`, written in the
+>   run's own transaction — D17) proves a recent authoritative run, by `patterns/freshness.ts`:
+>
+>   | Watermark vs the reader's last closed local day | Verdict | Served? |
+>   |---|---|---|
+>   | none | never evaluated | no — `not_evaluated` |
+>   | the same day | fresh | yes |
+>   | one day behind | delayed — tonight's run has not reached the user | yes |
+>   | two or more days behind | stale — a nightly run was missed | no — `evaluation_stale` |
+>   | the reader's today or later | invalid | no — `evaluation_invalid` |
+>
+>   One day is the smallest tolerance the cadence allows: from a user's local midnight until the
+>   02:15 run reaches them, their newest closed day is necessarily unevaluated. Both dates are the
+>   user's own local dates; no server timezone is involved. Of the active rows, only those whose
+>   `window_end` **is** the watermark's day are served — the ones that run confirmed; a row newer
+>   than the watermark makes the whole answer `evaluation_invalid`. Serving changes no lifecycle
+>   state and moves no watermark. The reasons reach the API as `dataQuality.limitations`
+>   (`API_DESIGN.md`, `GET /api/insights/weekly`). A served streak's `current` is true of its `windowEnd`, which may be
+>   one day behind — clients state it as of that date.
+> - **Failure and logging (5.4A.1).** If the adapter throws, `InsightsService` reports patterns as
+>   unavailable (`source_failed`, never `none`), returns the rest of the report, and logs an error
+>   with the failure's name and message. An `evaluation_invalid` state is logged as a warning.
+>   The API process logs once at start whether the consumer is enabled. No log line carries a
+>   pattern, evidence or any of the user's data. The adapter's read is a `REPEATABLE READ, READ
+>   ONLY` transaction; it has been run against a direct PostgreSQL connection only, **not** through
+>   Supabase's transaction pooler — verify that in staging before the flag is turned on there.
 > - **Ranking.** `selectPatternEvidence(candidates, referenceDate)` keeps valid `active` patterns,
 >   ranks them with `patterns/ranking.ts` (§4 note above, D10), keeps one per key and caps at three.
 > - **Caveats.** Deterministic, by kind and locale, never model-authored: only the English
@@ -384,7 +416,8 @@ keep repeating a claim that the data no longer supports.
 > | Nightly detection over all active users (5.3C-2, below) — off until `CRON_ENABLED=true` | **implemented** |
 > | Closed-day finalisation before detection (5.3C-3, below) | **implemented** |
 > | Historical backfill with the per-user watermark (5.3C-3, below, D17) | **implemented** |
-> | Retention job, production wiring of `PatternsEvidenceSource` (today `NO_PATTERN_ENGINE`) | **planned** |
+> | Consumer wiring behind `PATTERN_ENGINE_ENABLED` (default off), evaluation-state and freshness checks (5.4A) | **implemented** |
+> | Retention job | **planned** |
 > | `/api/patterns`, `/:id/series`, `/:id/dismiss`; nullable caveat in the published API; Vietnamese and other-kind caveat copy; narration | **planned** |
 > | Logging streak — stored and served as a fact beside the ranked list (D6, D10 S1/S3) | **implemented** |
 > | Timing, trend, frequency detectors | **blocked** (`registry.ts`) — D16 cold-start gate built in 5.3D; frequency not built |
