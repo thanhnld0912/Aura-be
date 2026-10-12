@@ -144,6 +144,33 @@ export const weeklyReportSchema = z.object({
       }),
     ),
   }),
+  /**
+   * Factual patterns, served beside `patterns` and never ranked with them (D10 S3) — today,
+   * the logging streak. `strength` is the run's share of the 45-day window, not a confidence;
+   * `pValue` does not exist for a fact. `unavailable` for a week the engine holds no record of.
+   */
+  patternFacts: z.object({
+    status: z.enum(['unavailable', 'none', 'available']),
+    items: z.array(
+      z.object({
+        id: z.string(),
+        kind: z.literal('streak'),
+        key: z.string(),
+        subjectMetric: z.string(),
+        subjectLabel: z.string(),
+        strength: share,
+        sampleSize: count,
+        coverage: share,
+        windowStart: localDateSchema,
+        windowEnd: localDateSchema,
+        windowDays: count,
+        run: z.object({ from: localDateSchema, to: localDateSchema, length: count }),
+        current: z.boolean(),
+        observedDays: count,
+        caveat: z.string().nullable(),
+      }),
+    ),
+  }),
   dataQuality: z.object({ limitations: z.array(z.enum(LIMITATION_CODES)) }),
 });
 

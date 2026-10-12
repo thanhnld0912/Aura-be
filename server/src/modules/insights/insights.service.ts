@@ -1,4 +1,4 @@
-import { selectPatternEvidence, type PatternEvidenceSource } from '../../insights/pattern-evidence.js';
+import { selectPatternEvidence, selectPatternFacts, type PatternEvidenceSource } from '../../insights/pattern-evidence.js';
 import {
   buildWeeklyReport,
   DAYS_IN_WEEK,
@@ -149,6 +149,7 @@ export class InsightsService {
       current,
       previous,
       patterns: selectPatternEvidence(candidates, week.today),
+      patternFacts: selectPatternFacts(candidates),
     });
   }
 

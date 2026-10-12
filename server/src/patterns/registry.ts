@@ -7,8 +7,10 @@ import {
   type CorrelationPair,
   type CorrelationResult,
 } from './correlation.js';
+import { COLD_START_WINDOW_DAYS } from './cold-start.js';
 import { windowEnding, type AnalysisWindow } from './coverage.js';
 import type { DailyFeatures, MetricKey } from './metrics.js';
+import { detectStreak, type StreakResult } from './streak.js';
 
 /**
  * Which detectors may turn a statistic into a pattern — the single place that decides.
@@ -28,9 +30,14 @@ export interface DetectorRegistration {
   family: DetectorFamily;
   /** The pattern kinds the family produces (D7). */
   kinds: readonly PatternKind[];
-  /** Whether results may leave the detector layer. */
+  /** Whether results may leave the detector layer — true when any of its kinds may. */
   emits: boolean;
-  /** What must be decided or built before it may emit; empty when it emits. */
+  /**
+   * The kinds whose results may leave the detector layer. A family can emit some kinds and
+   * not others: frequency/streak emits `streak` while frequency is not built (D7).
+   */
+  emittingKinds: readonly PatternKind[];
+  /** What must be decided or built before its blocked kinds may emit; empty when none is blocked. */
   blockedBy: readonly string[];
   /** Where its gates are specified. */
   spec: string;
@@ -56,6 +63,7 @@ export const DETECTOR_REGISTRY: Readonly<Record<DetectorFamily, DetectorRegistra
     actionability: 0.7,
     kinds: ['correlation'],
     emits: true,
+    emittingKinds: ['correlation'],
     blockedBy: [],
     spec: 'PATTERN_ENGINE.md §3.1; PATTERN_ENGINE_DECISIONS.md D8 — approved pairs only',
   },
@@ -65,6 +73,7 @@ export const DETECTOR_REGISTRY: Readonly<Record<DetectorFamily, DetectorRegistra
     actionability: null,
     kinds: ['timing'],
     emits: false,
+    emittingKinds: [],
     blockedBy: [
       'D16 — the cold-start gate (≥ 30 observed days in the 45-day window) is decided and built in cold-start.ts, but timing does not apply it yet',
       'D16 — noise: the §3.3 gates pass ≈ 9% of seeded pure-noise 45-day datasets (PATTERN_ENGINE.md §3)',
@@ -78,6 +87,7 @@ export const DETECTOR_REGISTRY: Readonly<Record<DetectorFamily, DetectorRegistra
     actionability: null,
     kinds: ['trend'],
     emits: false,
+    emittingKinds: [],
     blockedBy: [
       'D9 — the minimum practical slope ("materially different from zero") is open',
       'D16 — the cold-start gate (≥ 30 observed days in the 45-day window) is decided and built in cold-start.ts, but trend does not apply it yet',
@@ -89,15 +99,33 @@ export const DETECTOR_REGISTRY: Readonly<Record<DetectorFamily, DetectorRegistra
     version: 'frequency_streak@1',
     actionability: null,
     kinds: ['frequency', 'streak'],
-    emits: false,
+    // The logging streak emits (D6, D10 S1/S3); frequency stays blocked. Actionability stays
+    // null: a streak is served as a fact beside the ranked list, never scored (D10 S3).
+    emits: true,
+    emittingKinds: ['streak'],
     blockedBy: [
-      'D10 — no strength in [0,1] and no actionability value is decided for frequency or streak, so neither can be scored or ranked',
-      'D6 — persisted evidence is a subject/object series and toDetectedPattern accepts correlations only; a run of dates or a count distribution has no stored shape',
       'frequency — not built: no counting unit for most-repeated foods, no emission rule for the weekday/weekend split, and skip reasons are data-blocked (D3)',
+      'frequency — no strength in [0,1], no actionability and no stored evidence shape are decided (D10, D6)',
     ],
-    spec: 'PATTERN_ENGINE.md §3.4; PATTERN_ENGINE_DECISIONS.md D7, D14, D16 — streak assessment in streak.ts; frequency not built',
+    spec: 'PATTERN_ENGINE.md §3.4; PATTERN_ENGINE_DECISIONS.md D6, D7, D10, D14, D16 — logging streak in streak.ts; frequency not built',
   },
 };
+
+/**
+ * Kinds served as facts beside the ranked list rather than inside it (D10 S3): the logging
+ * streak says what happened, it is not an insight competing for attention, so it has no
+ * actionability and is never scored.
+ */
+export const FACTUAL_KINDS: readonly PatternKind[] = ['streak'];
+
+export function isFactualKind(kind: PatternKind): boolean {
+  return FACTUAL_KINDS.includes(kind);
+}
+
+/** Whether results of this kind may leave the detector layer. */
+export function kindEmits(kind: PatternKind): boolean {
+  return Object.values(DETECTOR_REGISTRY).some((entry) => entry.emittingKinds.includes(kind));
+}
 
 /** The families allowed to emit, in registry order. */
 export function emittingFamilies(): DetectorFamily[] {
@@ -115,10 +143,12 @@ export function approvedCorrelationPair(a: MetricKey, b: MetricKey): Correlation
 }
 
 /** A detector result that may leave the detector layer. Grows as families are unblocked. */
-export type DetectorResult = CorrelationResult;
+export type DetectorResult = CorrelationResult | StreakResult;
 
 export interface DetectorWindows {
   correlation: AnalysisWindow;
+  /** The D16 detection window, 45 days (`cold-start.ts`). */
+  streak: AnalysisWindow;
 }
 
 /**
@@ -126,7 +156,10 @@ export interface DetectorWindows {
  * closed day. Each family's own documented length; nothing here is a new window.
  */
 export function detectorWindowsEnding(windowEnd: string): DetectorWindows {
-  return { correlation: windowEnding(windowEnd, CORRELATION_WINDOW_DAYS) };
+  return {
+    correlation: windowEnding(windowEnd, CORRELATION_WINDOW_DAYS),
+    streak: windowEnding(windowEnd, COLD_START_WINDOW_DAYS),
+  };
 }
 
 /** The days a run must read: from the earliest window start to the shared end. */
@@ -148,6 +181,10 @@ export function runApprovedDetectors(features: readonly DailyFeatures[], windows
     switch (family) {
       case 'correlation':
         results.push(...detectCorrelations(features, windows.correlation));
+        break;
+      case 'frequency_streak':
+        // Streak only: frequency is not built (`emittingKinds`).
+        results.push(...detectStreak(features, windows.streak));
         break;
       default:
         // A family marked as emitting without a runner here is a programming error.

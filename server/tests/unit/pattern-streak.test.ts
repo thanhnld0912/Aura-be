@@ -8,7 +8,7 @@ import {
 } from '../../src/patterns/cold-start.js';
 import { windowEnding } from '../../src/patterns/coverage.js';
 import { METRIC_KEYS, type DailyFeatures, type MetricKey } from '../../src/patterns/metrics.js';
-import { DETECTOR_REGISTRY, runApprovedDetectors } from '../../src/patterns/registry.js';
+import { DETECTOR_REGISTRY, detectorWindowsEnding, runApprovedDetectors } from '../../src/patterns/registry.js';
 import { LOGGING_STREAK_KEY, MIN_STREAK_DAYS, assessStreak, type StreakEvaluation } from '../../src/patterns/streak.js';
 import { noiseDays } from '../helpers/pattern-noise.js';
 
@@ -17,8 +17,9 @@ import { noiseDays } from '../helpers/pattern-noise.js';
  * PATTERN_ENGINE_DECISIONS.md D7, D14, D16). Both pure, both over fixed fixtures — no
  * randomness except the canonical seeded noise fixture, whose seed is pinned.
  *
- * The streak is an assessment only: the family stays blocked from emitting (D10, D6), and
- * the last block below proves no streak can leave the detector layer.
+ * The assessment is what the gates decide; turning a passing assessment into a stored,
+ * served pattern (D6, D10 S1/S3) is covered in `pattern-streak-emission.test.ts`. The last
+ * block below proves the registry lets the streak — and only the streak — out of its family.
  */
 
 const EMPTY = Object.fromEntries(METRIC_KEYS.map((key) => [key, null])) as Record<MetricKey, number | null>;
@@ -255,23 +256,25 @@ describe('logging streak — determinism and evidence', () => {
   });
 });
 
-// ── The family stays blocked ───────────────────────────────────────────────────
+// ── The family emits the streak, and nothing else ──────────────────────────────
 
 describe('frequency/streak family', () => {
-  it('is registered, does not emit, and names what blocks it', () => {
+  it('emits the logging streak only, unranked, and names what still blocks frequency', () => {
     const family = DETECTOR_REGISTRY.frequency_streak;
     expect(family.kinds).toEqual(['frequency', 'streak']);
-    expect(family.emits).toBe(false);
+    expect(family.emits).toBe(true);
+    expect(family.emittingKinds).toEqual(['streak']);
+    // D10 S3: a fact, never scored — no actionability is invented for it.
     expect(family.actionability).toBeNull();
+    expect(family.blockedBy.join(' ')).toMatch(/frequency/);
     expect(family.spec).toMatch(/streak\.ts/);
   });
 
-  it('a streak that passes every decided gate still produces no detector result', () => {
+  it('a streak that passes every decided gate becomes exactly one detector result', () => {
     const days = calendar('L'.repeat(45));
     expect(assessStreak(days, END).outcome).toBe('passes_decided_gates');
 
-    const results = runApprovedDetectors(days, { correlation: windowEnding(END, 30) });
-    expect(results.filter((result) => (result.kind as string) === 'streak')).toEqual([]);
-    expect(results.every((result) => result.kind === 'correlation')).toBe(true);
+    const results = runApprovedDetectors(days, detectorWindowsEnding(END));
+    expect(results.filter((result) => result.kind === 'streak').map((result) => result.key)).toEqual([LOGGING_STREAK_KEY]);
   });
 });

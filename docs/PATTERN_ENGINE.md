@@ -146,11 +146,12 @@ Four detector families, each a pure function of a metric series.
 > | Correlation | **emits** — the two approved pairs only (D8) | `correlation.ts` |
 > | Timing | evaluation built, **blocked** — noise pass-rate (below), cold start not yet applied, and no `workout_sessions` write path | `timing.ts` |
 > | Trend | assessment built (n ≥ 14, R² ≥ 0.3, calendar-day x), **blocked** — D9 magnitude; cold start not yet applied | `trend.ts` |
-> | Streak | assessment built (Phase 5.3D, §3.4), **blocked** — D10 strength and actionability, D6 evidence shape | `streak.ts` |
+> | Streak | **emits** the logging streak as a **fact**, never ranked (D6, D10 S1/S3; §3.4) | `streak.ts` |
 > | Frequency | **not built** — no counting unit, no split rule, skip reasons data-blocked (§3.4) | — |
 >
 > The D16 cold-start gate (≥ 30 observed days in the 45-day window) is `cold-start.ts`. Only the
-> streak assessment applies it so far; applying it to timing and trend is part of unblocking them.
+> streak applies it so far; applying it to timing and trend is part of unblocking them. A detection
+> run reads the widest emitting window — the streak's 45 days — and each family reads its own.
 >
 > Measured on the seeded noise fixture (1,000 datasets): correlation passes ≈ 1.4% per pair and
 > trend ≈ 0.3% per metric, close to theory; the timing gates of §3.3 pass ≈ 9% of pure-noise
@@ -244,7 +245,7 @@ The skip-reason breakdown is quietly one of the most useful outputs in the produ
 scheduled after 18:00" — an observation a person can actually act on, and one that reframes
 the skip as a scheduling problem rather than a character problem.
 
-> **As built (Phase 5.3D) — streak assessment and the cold-start gate. Neither emits.**
+> **As built (Phase 5.3D) — streak assessment and the cold-start gate.**
 >
 > **Cold start** (`cold-start.ts`, D16 §1). The 45 calendar days ending on the last closed day;
 > passes at **≥ 30 observed days**. Observed is the §2.1 day fact (`events_logged > 0`), so a day
@@ -263,13 +264,32 @@ the skip as a scheduling problem rather than a character problem.
 > | Key | `streak:logged_days` (satisfies `chk_pattern_key_kind`) |
 > | Rejections | `cold_start`, `no_streak` |
 >
-> A run under way when the window opens is counted from the window's first day. No strength, score,
-> caveat or label is produced.
+> A run under way when the window opens is counted from the window's first day.
 >
-> **Why streak cannot emit yet.** D10 decides no `strength` in [0,1] and no `actionability` for
-> this kind, so a streak cannot be ranked. The stored `evidence` is a subject/object series that a
-> run of dates does not fit, and `toDetectedPattern` accepts correlations only (D6). The English
-> caveat copy for streak is also open (D6), though a missing caveat does not hide a pattern.
+> **As built (Phase 5.3D follow-up) — the logging streak as a stored, served fact** (D6, D10).
+> `detectStreak` turns a passing assessment into one pattern per user:
+>
+> | Field | Value |
+> |---|---|
+> | Run | the **longest** run in the 45-day window, the most recent of equal runs |
+> | `key` | `streak:logged_days` — one row per user, never one per run |
+> | `subject_metric` / `object_metric` | `logged_day` (catalog label "Logging consistency") / `NULL` |
+> | `direction` / `p_value` | `none` / `NULL` — no sign, and no test is run, so none is claimed |
+> | `strength` | `run.length / 45` (D10 S1), unrounded — a descriptive share of the window, not a confidence, probability, p-value or effect |
+> | `sample_size` / `coverage` | the run's length / observed days ÷ 45 (§2.2) |
+> | window | the 45-day D16 window ending on the run's day |
+> | `evidence` | `{ type: 'logged_days', run: { from, to, length }, current, observedDays, windowDays: 45 }` — dates only |
+> | caveat (en) | "This counts days you logged something, not what you did." |
+>
+> **Served as a fact, never ranked (D10 S3).** The family has no actionability and is never scored:
+> `selectPatternEvidence` (the ranked list, the weekly story's patterns) leaves streaks out, and
+> `selectPatternFacts` serves them beside it — `GET /api/insights/weekly` → `patternFacts`. The
+> weekly story does not read facts, so a streak is never narrated. Like every pattern, it is current
+> state: a past week gets `patternFacts.status = 'unavailable'`, never today's streak as history.
+>
+> It goes through the same lifecycle and watermark as a correlation: a run whose window no longer
+> clears the gates stales it, a later run that clears them reactivates it (same id, same
+> `firstDetectedAt`), and a historical run before the watermark changes nothing (D17).
 >
 > **Why frequency is not built.** All three of its documented outputs are underspecified or blocked:
 >
@@ -304,6 +324,8 @@ most five and the UI picks.
 > **score DESC, strength DESC, lastDetectedAt DESC, key ASC**. `strength` is a magnitude in 0..1; the
 > sign is `direction`. Actionability is registry metadata (correlation 0.70; the blocked families
 > have none). The score is computed when serving and never stored (`server/src/patterns/ranking.ts`).
+> The logging streak has no actionability by decision, not by omission: it is a fact served beside
+> the ranked list and never enters it (D10 S3).
 
 Lifecycle:
 
@@ -364,7 +386,8 @@ keep repeating a claim that the data no longer supports.
 > | Historical backfill with the per-user watermark (5.3C-3, below, D17) | **implemented** |
 > | Retention job, production wiring of `PatternsEvidenceSource` (today `NO_PATTERN_ENGINE`) | **planned** |
 > | `/api/patterns`, `/:id/series`, `/:id/dismiss`; nullable caveat in the published API; Vietnamese and other-kind caveat copy; narration | **planned** |
-> | Timing, trend, frequency, streak detectors | **blocked** (`registry.ts`) — streak assessment and the D16 cold-start gate built in 5.3D; frequency not built |
+> | Logging streak — stored and served as a fact beside the ranked list (D6, D10 S1/S3) | **implemented** |
+> | Timing, trend, frequency detectors | **blocked** (`registry.ts`) — D16 cold-start gate built in 5.3D; frequency not built |
 >
 > **As built (Phase 5.3C-1) — detection orchestration.** `PatternDetectionService.runForUser(userId,
 > targetDate)` (`server/src/modules/patterns/pattern-detection.service.ts`) runs one user for one

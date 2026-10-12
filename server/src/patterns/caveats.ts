@@ -15,6 +15,8 @@ export type CaveatLocale = 'en' | 'vi';
 
 const CAVEATS: Partial<Record<PatternKind, Partial<Record<CaveatLocale, string>>>> = {
   correlation: { en: 'This is an association in your own logs, not a cause.' },
+  // A logging streak counts days with a log in them; it says nothing about what was done.
+  streak: { en: 'This counts days you logged something, not what you did.' },
 };
 
 /**

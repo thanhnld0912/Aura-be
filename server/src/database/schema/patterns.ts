@@ -16,13 +16,33 @@ import { patternDirectionEnum, patternKindEnum, patternStatusEnum } from './enum
 import { users } from './users.js';
 
 /**
- * The evidence a detector produced, snapshotted with the pattern (PATTERN_ENGINE.md §6):
- * the exact points behind the statistic, oldest first — what the chart draws. Written as
- * the detector returned them; nothing here recomputes or reshapes a value.
+ * The evidence a detector produced, snapshotted with the pattern (PATTERN_ENGINE.md §6,
+ * PATTERN_ENGINE_DECISIONS.md D6). Written as the detector returned it; nothing here
+ * recomputes or reshapes a value. One shape per kind that emits, told apart by shape — the
+ * correlation shape predates the union and stored rows keep it unchanged:
+ *
+ * - correlation: the exact points behind the statistic, oldest first — what the chart draws;
+ * - streak: the run of logged days the claim rests on, and its window context.
+ *
+ * `jsonb` carries no constraint; both shapes are validated in code, at `toDetectedPattern`
+ * on the way in and at `patternEvidenceSchema` on the way out.
  */
-export interface PatternEvidenceSnapshot {
+export interface CorrelationEvidenceSnapshot {
   points: Array<{ localDate: string; subject: number; object: number }>;
 }
+
+export interface StreakEvidenceSnapshot {
+  type: 'logged_days';
+  /** Consecutive logged days, inclusive; `length` is the calendar days from `from` to `to`. */
+  run: { from: string; to: string; length: number };
+  /** Whether the run ends on the window's last day — the last closed day of the run. */
+  current: boolean;
+  /** Logged days anywhere in the window (the D16 count). */
+  observedDays: number;
+  windowDays: 45;
+}
+
+export type PatternEvidenceSnapshot = CorrelationEvidenceSnapshot | StreakEvidenceSnapshot;
 
 /**
  * `patterns` — the **current** set of patterns the engine stands behind, one row per user

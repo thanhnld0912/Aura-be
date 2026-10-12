@@ -115,7 +115,7 @@ describe('DetectorResult → persisted facts', () => {
       detectorVersion: 'correlation@1',
     });
     expect(detected.strength).toBeGreaterThan(0);
-    expect(detected.evidence.points).not.toBe(result.evidence);
+    expect('points' in detected.evidence && detected.evidence.points).not.toBe(result.evidence);
   });
 
   it.each<[string, (result: CorrelationResult) => CorrelationResult]>([

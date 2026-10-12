@@ -74,6 +74,7 @@ export const METRIC_KEYS = [
   'mood_score',
   'water_ml',
   'logging_gap_hours',
+  'logged_day',
 ] as const;
 
 export type MetricKey = (typeof METRIC_KEYS)[number];
@@ -215,6 +216,17 @@ export const METRICS: Record<MetricKey, MetricDefinition> = {
     status: 'available',
     source: 'longest interval between consecutive events of the day (daily_summaries.metrics.logging_gap_hours)',
   },
+  // The observed-day fact of §2.1 as a metric: 1 on a day something was logged. An unobserved
+  // day is null like every other metric, never 0 — "nothing logged" is not a measured 0.
+  // It is the subject of the logging streak (`streak.ts`, D14); no correlation pair uses it.
+  logged_day: {
+    key: 'logged_day',
+    label: 'Logging consistency',
+    unit: 'day',
+    scale: 'binary',
+    status: 'available',
+    source: 'a local day with at least one live event (daily_summaries.events_logged > 0)',
+  },
 };
 
 /** The columns of `daily_summaries` this layer reads — nothing else is needed. */
@@ -300,6 +312,7 @@ export function extractDailyFeatures(row: SummarySnapshot): DailyFeatures {
       mood_score: row.mood === null ? null : MOOD_SCORE[row.mood],
       water_ml: numberOrNull(row.waterMl),
       logging_gap_hours: numberOrNull(bag[DAY_FACT_KEYS.loggingGapHours]),
+      logged_day: 1,
     },
   };
 }

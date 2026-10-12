@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { LOCAL_DATE_PATTERN } from '../lib/local-date.js';
+import { LOCAL_DATE_PATTERN, addLocalDays, localDaysBetween } from '../lib/local-date.js';
 import { rankPatterns } from '../patterns/ranking.js';
+import { isFactualKind } from '../patterns/registry.js';
 
 /**
  * The seam between the Pattern Engine and everything that talks about patterns.
@@ -32,6 +33,49 @@ export const MAX_STORY_PATTERNS = 3;
 const localDate = z.string().regex(LOCAL_DATE_PATTERN);
 const instant = z.string().datetime({ offset: true });
 
+/** A real calendar date in canonical form — `2026-02-30` matches the pattern but is not one. */
+const canonicalLocalDate = localDate.refine((value) => addLocalDays(value, 0) === value, 'not a calendar date');
+
+/** The logging streak's window: the D16 detection window (`cold-start.ts`). */
+export const STREAK_WINDOW_DAYS = 45;
+
+/** Correlation evidence (D6): the points behind the statistic. Unchanged since 5.3A. */
+export const correlationEvidenceSchema = z.object({
+  points: z.array(z.object({ localDate, subject: z.number(), object: z.number() })),
+});
+
+/**
+ * Logging-streak evidence (D6): the run of consecutive logged days the claim rests on, and
+ * the window context needed to reproduce it. Dates only — nothing about what was logged.
+ * Checks what the shape alone can check; that the run lies inside the pattern's own window
+ * is checked against the pattern (`patternEvidenceSchema`) and in `toDetectedPattern`.
+ */
+export const streakEvidenceSchema = z
+  .object({
+    type: z.literal('logged_days'),
+    run: z.object({ from: canonicalLocalDate, to: canonicalLocalDate, length: z.number().int().min(1) }).strict(),
+    current: z.boolean(),
+    observedDays: z.number().int().min(0).max(STREAK_WINDOW_DAYS),
+    windowDays: z.literal(STREAK_WINDOW_DAYS),
+  })
+  .strict()
+  .superRefine((evidence, context) => {
+    const { from, to, length } = evidence.run;
+    if (to < from) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['run', 'to'], message: 'the run ends before it starts' });
+      return;
+    }
+    if (length !== localDaysBetween(from, to) + 1) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['run', 'length'], message: 'length is not the days from..to' });
+    }
+    // Every day of the run is a logged day of the window.
+    if (length > evidence.observedDays) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['observedDays'], message: 'fewer observed days than the run' });
+    }
+  });
+
+export const patternEvidenceSnapshotSchema = z.union([correlationEvidenceSchema, streakEvidenceSchema]);
+
 /**
  * One pattern as the engine serves it: the persisted pattern (DATABASE_DESIGN.md §3.7)
  * plus what is derived at read time — a human label per metric and the caveat.
@@ -58,10 +102,8 @@ export const patternEvidenceSchema = z.object({
   windowStart: localDate,
   windowEnd: localDate,
   windowDays: z.number().int().min(1),
-  /** The points behind the statistic — what a chart draws. */
-  evidence: z.object({
-    points: z.array(z.object({ localDate, subject: z.number(), object: z.number() })),
-  }),
+  /** Per kind (D6): the points behind a correlation, the run behind a streak. */
+  evidence: patternEvidenceSnapshotSchema,
   detectorVersion: z.string().min(1).max(60),
   status: z.enum(PATTERN_STATUSES),
   firstDetectedAt: instant,
@@ -72,6 +114,20 @@ export const patternEvidenceSchema = z.object({
    * exists for the kind (D6); a null caveat does not hide a pattern.
    */
   caveat: z.string().trim().min(1).max(280).nullable(),
+}).superRefine((pattern, context) => {
+  const fail = (message: string) => context.addIssue({ code: z.ZodIssueCode.custom, path: ['evidence'], message });
+  const evidence = pattern.evidence;
+  if (pattern.kind !== 'streak') {
+    if (!('points' in evidence)) fail(`a ${pattern.kind} pattern carries a points series`);
+    return;
+  }
+  if (!('type' in evidence)) return fail('a streak pattern carries a run of logged days');
+  // The run is inside the pattern's own window, and the row's figures are the run's.
+  if (evidence.run.from < pattern.windowStart || evidence.run.to > pattern.windowEnd) fail('the run lies outside the window');
+  if (pattern.windowDays !== evidence.windowDays) fail('windowDays does not match the evidence');
+  if (pattern.sampleSize !== evidence.run.length) fail('sampleSize is not the run length');
+  if (evidence.current !== (evidence.run.to === pattern.windowEnd)) fail('current does not match where the run ends');
+  if (pattern.pValue !== null) fail('a streak has no p-value');
 });
 
 export type PatternEvidence = z.infer<typeof patternEvidenceSchema>;
@@ -125,10 +181,8 @@ export interface PatternSelection {
 export function selectPatternEvidence(candidates: readonly unknown[] | null, referenceDate: string): PatternSelection {
   if (candidates === null) return { status: 'unavailable', items: [] };
 
-  const active = candidates.flatMap((candidate) => {
-    const parsed = patternEvidenceSchema.safeParse(candidate);
-    return parsed.success && parsed.data.status === 'active' ? [parsed.data] : [];
-  });
+  // Factual kinds (a logging streak) are served by `selectPatternFacts`, never ranked (D10 S3).
+  const active = activePatterns(candidates).filter((pattern) => !isFactualKind(pattern.kind));
 
   const seen = new Set<string>();
   const items = rankPatterns(active, referenceDate)
@@ -138,6 +192,42 @@ export function selectPatternEvidence(candidates: readonly unknown[] | null, ref
       return true;
     })
     .slice(0, MAX_STORY_PATTERNS);
+
+  return { status: items.length > 0 ? 'available' : 'none', items };
+}
+
+/** Valid, `active` patterns; anything malformed or not current is dropped, never repaired. */
+function activePatterns(candidates: readonly unknown[]): PatternEvidence[] {
+  return candidates.flatMap((candidate) => {
+    const parsed = patternEvidenceSchema.safeParse(candidate);
+    return parsed.success && parsed.data.status === 'active' ? [parsed.data] : [];
+  });
+}
+
+export interface PatternFactSelection {
+  status: PatternSelectionStatus;
+  items: PatternEvidence[];
+}
+
+/**
+ * The factual patterns — today, the logging streak (D10 S3): served beside the ranked list,
+ * never inside it. A fact is not scored, so it is neither capped by `MAX_STORY_PATTERNS` nor
+ * ordered by D10; the order is the key, so the same patterns always come out the same way.
+ * Validation, `active`-only and one-per-key are the ranked list's rules. `null` candidates —
+ * a source that cannot say, e.g. a past week — are `unavailable`, never presented as "none".
+ */
+export function selectPatternFacts(candidates: readonly unknown[] | null): PatternFactSelection {
+  if (candidates === null) return { status: 'unavailable', items: [] };
+
+  const seen = new Set<string>();
+  const items = activePatterns(candidates)
+    .filter((pattern) => isFactualKind(pattern.kind))
+    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+    .filter((pattern) => {
+      if (seen.has(pattern.key)) return false;
+      seen.add(pattern.key);
+      return true;
+    });
 
   return { status: items.length > 0 ? 'available' : 'none', items };
 }

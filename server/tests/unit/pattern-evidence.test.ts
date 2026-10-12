@@ -230,8 +230,10 @@ describe('ranking (D10)', () => {
 describe('caveats (D6)', () => {
   it('has engine-authored copy for every kind allowed to emit, in the evidence locale', () => {
     for (const family of emittingFamilies()) {
-      for (const kind of DETECTOR_REGISTRY[family].kinds) expect(caveatFor(kind, 'en')).toMatch(/not a cause/);
+      for (const kind of DETECTOR_REGISTRY[family].emittingKinds) expect(caveatFor(kind, 'en')).not.toBeNull();
     }
+    expect(caveatFor('correlation', 'en')).toMatch(/not a cause/);
+    expect(caveatFor('streak', 'en')).toBe('This counts days you logged something, not what you did.');
   });
 
   it('returns null where no copy is authored, rather than inventing one', () => {

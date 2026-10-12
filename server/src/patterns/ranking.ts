@@ -71,8 +71,9 @@ export function compareRanked(a: Rankable & { score: number }, b: Rankable & { s
 
 /**
  * Scores and orders patterns. A pattern whose kind has no decided actionability cannot be
- * scored and is left out rather than given an invented value; no such pattern can be stored
- * today, because only correlation emits.
+ * scored and is left out rather than given an invented value. The logging streak is stored
+ * with no actionability on purpose: it is a fact served beside the ranked list (D10 S3,
+ * `selectPatternFacts`), and the consumer never hands it here.
  */
 export function rankPatterns<T extends Rankable>(patterns: readonly T[], referenceDate: string): Array<T & { score: number }> {
   return patterns

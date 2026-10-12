@@ -163,6 +163,7 @@ describe('extractDailyFeatures', () => {
         mood_score: 3,
         water_ml: 750,
         logging_gap_hours: 5.5,
+        logged_day: 1,
       },
     });
   });

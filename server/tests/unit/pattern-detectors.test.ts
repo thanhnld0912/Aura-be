@@ -9,6 +9,8 @@ import {
   approvedCorrelationPair,
   emittingFamilies,
   runApprovedDetectors,
+  detectorWindowsEnding,
+  isFactualKind,
 } from '../../src/patterns/registry.js';
 import { welchTTest } from '../../src/patterns/statistics.js';
 import {
@@ -62,20 +64,22 @@ describe('detector registry', () => {
     expect(Object.keys(DETECTOR_REGISTRY).sort()).toEqual(['correlation', 'frequency_streak', 'timing', 'trend']);
   });
 
-  it('lets only correlation emit, and names what blocks every other family', () => {
-    expect(emittingFamilies()).toEqual(['correlation']);
+  it('lets correlation and the logging streak emit, and names what blocks everything else', () => {
+    expect(emittingFamilies()).toEqual(['correlation', 'frequency_streak']);
+    expect(DETECTOR_REGISTRY.correlation.emittingKinds).toEqual(['correlation']);
+    expect(DETECTOR_REGISTRY.frequency_streak.emittingKinds).toEqual(['streak']);
     expect(DETECTOR_REGISTRY.correlation.blockedBy).toEqual([]);
     expect(DETECTOR_REGISTRY.timing.blockedBy.join(' ')).toMatch(/D16/);
     expect(DETECTOR_REGISTRY.trend.blockedBy.join(' ')).toMatch(/D9/);
     expect(DETECTOR_REGISTRY.trend.blockedBy.join(' ')).toMatch(/D16/);
-    // D16 decided the frequency/streak thresholds; what still blocks the family is D10
-    // (no strength or actionability for these kinds), D6 (no stored shape for their
-    // evidence) and frequency not being built.
-    expect(DETECTOR_REGISTRY.frequency_streak.blockedBy.join(' ')).toMatch(/D10/);
-    expect(DETECTOR_REGISTRY.frequency_streak.blockedBy.join(' ')).toMatch(/D6/);
+    // The streak emits (D6, D10 S1/S3); frequency is still not built.
     expect(DETECTOR_REGISTRY.frequency_streak.blockedBy.join(' ')).toMatch(/frequency — not built/);
     for (const registration of Object.values(DETECTOR_REGISTRY)) {
-      expect(registration.emits).toBe(registration.blockedBy.length === 0);
+      // A family emits exactly when some kind of it may; every kind it may not emit is blocked
+      // by something it names.
+      expect(registration.emits).toBe(registration.emittingKinds.length > 0);
+      const blockedKinds = registration.kinds.filter((kind) => !registration.emittingKinds.includes(kind));
+      expect(registration.blockedBy.length > 0).toBe(blockedKinds.length > 0);
     }
   });
 
@@ -100,7 +104,8 @@ describe('detector registry', () => {
   });
 
   it('emits no timing or trend result, however strong the signal in the data', () => {
-    // Every family has a perfect signal here; only the approved correlation may come out.
+    // Every family has a perfect signal here; only the approved correlation may come out —
+    // and the logging streak, because every one of the 30 days was logged (a fact, D10 S3).
     const features = Array.from({ length: 30 }, (_, i) =>
       day(addLocalDays(W30.from, i), {
         mood_score: (i % 4) + 1,
@@ -112,9 +117,11 @@ describe('detector registry', () => {
     );
     expect(assessTrend(features, 'distinct_foods', W30).outcome).toBe('passes_decided_gates');
 
-    const results = runApprovedDetectors(features, { correlation: W30 });
-    expect(results.map((result) => result.key)).toEqual(['correlation:mood_score:plan_adherence_pct']);
-    expect(results.every((result) => result.kind === 'correlation')).toBe(true);
+    const results = runApprovedDetectors(features, detectorWindowsEnding(W30.to));
+    expect(results.filter((result) => result.kind === 'correlation').map((result) => result.key)).toEqual([
+      'correlation:mood_score:plan_adherence_pct',
+    ]);
+    expect(results.map((result) => result.kind).sort()).toEqual(['correlation', 'streak']);
   });
 });
 
@@ -342,7 +349,9 @@ describe('noise fixture (inferential detectors only — D13)', () => {
     for (const condition of APPROVED_TIMING_CONDITIONS) {
       expect(evaluateTiming(f45, condition, W45).outcome).toBe('rejected');
     }
-    expect(runApprovedDetectors(f30, { correlation: W30 })).toEqual([]);
+    // Noise logged every day is a real logging streak — a fact, not a statistical claim — so
+    // only the inferential results must be empty.
+    expect(runApprovedDetectors(f30, detectorWindowsEnding(W30.to)).filter((result) => !isFactualKind(result.kind))).toEqual([]);
   });
 
   it('keeps each gate close to its theoretical false-positive rate across 1,000 seeded noise datasets', () => {

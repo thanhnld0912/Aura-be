@@ -96,14 +96,15 @@ describe('what a run reads and runs', () => {
     const state = harness();
     const result = await state.service.runForUser(USER, '2026-09-30');
 
-    expect(detectionRange(detectorWindowsEnding('2026-09-30'))).toEqual({ from: '2026-09-01', to: '2026-09-30' });
-    expect(state.ranges).toEqual([['2026-09-01', '2026-09-30']]);
+    // The widest window decides what is read: the streak's 45 days (D16), not correlation's 30.
+    expect(detectionRange(detectorWindowsEnding('2026-09-30'))).toEqual({ from: '2026-08-17', to: '2026-09-30' });
+    expect(state.ranges).toEqual([['2026-08-17', '2026-09-30']]);
     expect(result).toEqual({
       userId: USER,
       targetDate: '2026-09-30',
-      windowStart: '2026-09-01',
+      windowStart: '2026-08-17',
       windowEnd: '2026-09-30',
-      detectorsRun: ['correlation'],
+      detectorsRun: ['correlation', 'frequency_streak'],
       detectionsEmitted: 0,
       patternsCreated: 0,
       patternsRedetected: 0,

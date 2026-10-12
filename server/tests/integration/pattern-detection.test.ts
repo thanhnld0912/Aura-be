@@ -4,6 +4,7 @@ import { addLocalDays } from '../../src/lib/local-date.js';
 import { PatternDetectionService, type DetectionLogger } from '../../src/modules/patterns/pattern-detection.service.js';
 import { PatternsRepository } from '../../src/modules/patterns/patterns.repository.js';
 import { DailySummariesRepository } from '../../src/modules/summaries/daily-summaries.repository.js';
+import { runApprovedDetectors } from '../../src/patterns/registry.js';
 import { UsersRepository } from '../../src/modules/users/users.repository.js';
 import { bearer, signTestToken } from '../helpers/app.js';
 import { createDatabaseHarness, hasDatabase, testUserId, type DatabaseHarness } from '../helpers/database.js';
@@ -88,6 +89,11 @@ describe.skipIf(!hasDatabase)('pattern detection run', () => {
       patterns,
       logger,
       now: () => NOW,
+      // This file is the correlation lifecycle's regression suite, and its 30 logged days also
+      // make a real logging streak. The registry's own runner runs here, with only its
+      // correlation results kept, so every count below still means "correlations". The streak
+      // through the same lifecycle — beside a correlation — is pattern-streak.test.ts.
+      detect: (features, windows) => runApprovedDetectors(features, windows).filter((result) => result.kind === 'correlation'),
     });
   });
 
@@ -115,9 +121,10 @@ describe.skipIf(!hasDatabase)('pattern detection run', () => {
     expect(result).toMatchObject({
       userId: userA,
       targetDate: END_1,
-      windowStart: MARCH,
+      // The run reads the widest window, the streak's 45 days (D16), and runs both families.
+      windowStart: addLocalDays(END_1, -44),
       windowEnd: END_1,
-      detectorsRun: ['correlation'],
+      detectorsRun: ['correlation', 'frequency_streak'],
       detectionsEmitted: 2,
       patternsCreated: 2,
       patternsStaled: 0,

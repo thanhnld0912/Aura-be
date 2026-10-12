@@ -1,17 +1,24 @@
+import type { StreakEvidenceSnapshot } from '../database/schema/patterns.js';
 import { addLocalDays } from '../lib/local-date.js';
-import { coldStart } from './cold-start.js';
-import { windowDates } from './coverage.js';
+import { COLD_START_WINDOW_DAYS, coldStart } from './cold-start.js';
+import { windowDates, type AnalysisWindow } from './coverage.js';
 import type { DailyFeatures } from './metrics.js';
 
 /**
  * The streak half of the frequency/streak family (PATTERN_ENGINE.md §3.4,
  * PATTERN_ENGINE_DECISIONS.md D7, D14, D16): runs of consecutive **logged** days.
  *
- * **This module assesses; it never emits.** A streak's gates are decided (D16), but what it
- * would become as a pattern is not: D10 leaves a `strength` in [0,1] and an `actionability`
- * value open for this kind — without them it cannot be scored or ranked — and the persisted
- * evidence shape (D6) is a subject/object series a run of dates does not fit. The registry
- * (`registry.ts`) keeps the family blocked. An assessment that clears the gates is only that.
+ * `assessStreak` assesses; `detectStreak` turns an assessment that clears the gates into the
+ * pattern the registry lets emit (D6, D10):
+ *
+ * - **Run:** the longest run in the window, the most recent on a tie (below). One pattern
+ *   per user, `streak:logged_days` — never one per run.
+ * - **Strength (D10 S1):** `run.length / 45`, unrounded, as `|r|` and coverage are. A
+ *   descriptive normalised run length — not a p-value, a confidence, a probability or an
+ *   effect. `pValue` is null: no test is run, so none is claimed.
+ * - **Serving (D10 S3):** a fact, not a ranked insight — the family has no actionability and
+ *   the streak never enters the ranked list (`selectPatternFacts`).
+ * - **Evidence (D6):** the run's dates and the window context, `StreakEvidenceSnapshot`.
  *
  * ## What is counted
  *
@@ -137,4 +144,73 @@ export function assessStreak(features: readonly DailyFeatures[], windowEnd: stri
       evidence: windowDates({ from: longest.from, to: longest.to }),
     },
   };
+}
+
+/** The metric a logging streak is about (`METRICS.logged_day`). */
+export const STREAK_SUBJECT_METRIC = 'logged_day' as const;
+
+/** A logging streak as it leaves the detector layer (`DetectorResult`, D6). */
+export interface StreakResult {
+  kind: 'streak';
+  key: typeof LOGGING_STREAK_KEY;
+  subjectMetric: typeof STREAK_SUBJECT_METRIC;
+  objectMetric: null;
+  /** A run has no sign. */
+  direction: 'none';
+  /** `run.length / windowDays` (D10 S1). */
+  strength: number;
+  /** No test is run (D6: null for frequency and streak). */
+  pValue: null;
+  /** The run's length — the days the claim rests on. */
+  sampleSize: number;
+  /** Observed days / window days (PATTERN_ENGINE.md §2.2). */
+  coverage: number;
+  windowDays: number;
+  windowStart: string;
+  windowEnd: string;
+  evidence: StreakEvidenceSnapshot;
+}
+
+/** D10 S1: the run's share of the 45-day window. In [0, 1] for any run inside it. */
+export function streakStrength(runLength: number, windowDays: number = COLD_START_WINDOW_DAYS): number {
+  return runLength / windowDays;
+}
+
+/**
+ * The logging streak over `window` as a detector result — none when the assessment is
+ * rejected (cold start, or no run of MIN_STREAK_DAYS). The window must be the D16 detection
+ * window: the gate's 30 observed days mean nothing over another length.
+ */
+export function detectStreak(features: readonly DailyFeatures[], window: AnalysisWindow): StreakResult[] {
+  const days = windowDates(window).length;
+  if (days !== COLD_START_WINDOW_DAYS) {
+    throw new Error(`the logging streak reads a ${COLD_START_WINDOW_DAYS}-day window, not ${days}`);
+  }
+  const evaluation = assessStreak(features, window.to);
+  if (evaluation.outcome !== 'passes_decided_gates') return [];
+
+  const { longestRun: run, observedDays, windowStart, windowEnd } = evaluation.assessment;
+  return [
+    {
+      kind: 'streak',
+      key: LOGGING_STREAK_KEY,
+      subjectMetric: STREAK_SUBJECT_METRIC,
+      objectMetric: null,
+      direction: 'none',
+      strength: streakStrength(run.length),
+      pValue: null,
+      sampleSize: run.length,
+      coverage: observedDays / COLD_START_WINDOW_DAYS,
+      windowDays: COLD_START_WINDOW_DAYS,
+      windowStart,
+      windowEnd,
+      evidence: {
+        type: 'logged_days',
+        run: { from: run.from, to: run.to, length: run.length },
+        current: run.to === windowEnd,
+        observedDays,
+        windowDays: COLD_START_WINDOW_DAYS,
+      },
+    },
+  ];
 }

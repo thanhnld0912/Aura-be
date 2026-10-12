@@ -18,17 +18,17 @@
 | D3 | `partial` workout sessions | **RESOLVED → 0** (amends 5.1) | — (data has no write path) |
 | D4 | Several planned workouts in a day | RESOLVED (conservative) → null | — |
 | D5 | Vegetable / protein servings | **BLOCKED — OPEN** | `vegetable_servings`, `protein_servings`, pair 6 |
-| D6 | Detector output vs persisted pattern vs consumer view | **RESOLVED** — `coverage` (no `support`); strength 0..1, sign in `direction` · Vietnamese/other-kind caveat copy and `narrativeEn` **OPEN** | — |
+| D6 | Detector output vs persisted pattern vs consumer view | **RESOLVED** — `coverage` (no `support`); strength 0..1, sign in `direction`; evidence is a per-kind union (correlation points, streak run) · Vietnamese, trend/timing/frequency caveat copy and `narrativeEn` **OPEN** | — |
 | D7 | Frequency vs streak | **RESOLVED** — one detector family, two kinds | — |
 | D8 | Duplicate `mood_score ↔ plan_adherence_pct` pair | **RESOLVED** — one undirected test | — |
 | D9 | Trend "slope materially different from zero" | Statistical part RESOLVED (implied by R²) · magnitude **OPEN** | trend detector |
-| D10 | Ranking | **RESOLVED** — `0.50·strength + 0.30·recency + 0.20·actionability`; implemented in 5.3B | — |
+| D10 | Ranking | **RESOLVED** — `0.50·strength + 0.30·recency + 0.20·actionability`; implemented in 5.3B · logging streak: longest run, strength `run/45` (S1), a fact never ranked (S3) | — |
 | D11 | Scheduler timezone | **RESOLVED** — one global trigger, per-user closed-day semantics | — |
 | D12 | `weekly_summaries`, `insights`, `ai_feedback` scope | **RESOLVED** — boundary below | — |
 | D13 | Noise fixture vs frequency/streak | **RESOLVED** — noise fixture covers inferential detectors | — |
 | D14 | Data source per detector | **RESOLVED** | — |
 | D15 | Plan-change recomputation | **RESOLVED** — nightly job is authoritative for closed days | — |
-| D16 | Frequency/streak emission threshold and cold-start day count | **RESOLVED** — observedDays ≥ 30 in a 45-day window; frequency ≥ 4, streak ≥ 3 | — (cold start and streak assessment built in 5.3D; nothing emits; frequency not built) |
+| D16 | Frequency/streak emission threshold and cold-start day count | **RESOLVED** — observedDays ≥ 30 in a 45-day window; frequency ≥ 4, streak ≥ 3 | — (cold start built in 5.3D; the logging streak emits as a fact; frequency not built) |
 | D17 | Re-running an older day (backfill) against newer lifecycle state | **RESOLVED** — per-user watermark; a run before it is historical and writes no lifecycle change | — (implemented, 5.3C-3) |
 
 ---
@@ -206,6 +206,19 @@ either metric is `undefined_definition`.
 **Impact on tests.** Detector tests assert DetectorResult only; lifecycle tests assert
 PersistedPattern transitions; the existing `pattern-evidence.test.ts` remains the consumer contract.
 
+> **As built (5.3D follow-up) — evidence is a union per kind.** `PatternEvidenceSnapshot` is
+> `{ points }` for a correlation — the shape every stored row already has, unchanged — or, for the
+> logging streak, `{ type: 'logged_days', run: { from, to, length }, current, observedDays,
+> windowDays: 45 }`: the run the claim rests on and the window context that reproduces it, dates
+> only. `streakEvidenceSchema` checks canonical dates, `to ≥ from`, `length` = the calendar days
+> from..to, `0 ≤ observedDays ≤ 45` and ≥ the run, and `windowDays = 45`; `toDetectedPattern`
+> and `patternEvidenceSchema` also check the run lies in the pattern's window, `sampleSize` is
+> its length, `current` matches where it ends and `pValue` is null. `evidence` is `jsonb`, so
+> **no migration**: `chk_pattern_key_kind`, `chk_pattern_inference` (p-value null for streak)
+> and `chk_pattern_object` already admit the row. Streak caveat (en): "This counts days you
+> logged something, not what you did." Its subject is the catalog metric `logged_day`
+> ("Logging consistency": 1 on an observed day, null otherwise).
+
 ## D7 — Frequency vs streak
 
 **Decision.** **One detector family, two pattern kinds.** The four detector families are those of
@@ -293,7 +306,18 @@ order   = score DESC, strength DESC, lastDetectedAt DESC, key ASC
 - **Tie-break** is exactly the four keys above; sample size and id play no part.
 - **Implemented:** `server/src/patterns/ranking.ts`, applied by `selectPatternEvidence`.
 - **Still open:** actionability values for the blocked families; a strength in [0,1] for
-  frequency and streak when they are built.
+  frequency when it is built.
+
+> **Logging streak (product decision, 5.3D follow-up).**
+> - **Run:** the longest run of logged days in the 45-day window, the most recent of equal runs;
+>   one pattern per user, `streak:logged_days`.
+> - **Strength (S1):** `run.length / 45`, unrounded like `|r|` — a descriptive share of the
+>   window. It is not a p-value, a confidence, a probability or a causal effect; `pValue` is null.
+> - **Serving (S3):** a **fact**, not a ranked insight. Its family keeps `actionability: null` —
+>   none is invented — and it never enters `rankPatterns`: `selectPatternEvidence` excludes it and
+>   `selectPatternFacts` serves it beside the ranked list (`GET /api/insights/weekly` →
+>   `patternFacts`). The ranked list, its formula and correlation's behaviour are unchanged. The
+>   weekly story reads only the ranked list, so a streak is a deterministic fact, never narrated.
 
 ## D11 — Scheduler timezone
 
@@ -413,11 +437,12 @@ still blocks timing, trend, frequency and streak; nothing below runs until a fam
 noise pass-rate and the `workout_sessions` write path; frequency/streak are not built.
 
 > **As built (Phase 5.3D).** §1 is `server/src/patterns/cold-start.ts`. §3 is the logging-streak
-> assessment in `server/src/patterns/streak.ts`, which applies §1 first. Neither changes what is
-> emitted. Still open for this family: a `strength` in [0,1] and an `actionability` (D10), a stored
-> evidence shape (D6), and — for frequency — what an occurrence is (most-repeated foods: per item,
-> per meal or per day) and what makes a weekday/weekend split a pattern (§2's "≥ 4 occurrences"
-> does not say). §1 is not yet applied to timing or trend; that is part of unblocking each.
+> assessment in `server/src/patterns/streak.ts`, which applies §1 first. Since the 5.3D follow-up
+> the logging streak emits — evidence per D6, strength and serving per D10 (S1, S3). Still open for
+> this family, for frequency only: a `strength`, an `actionability`, an evidence shape, what an
+> occurrence is (most-repeated foods: per item, per meal or per day) and what makes a
+> weekday/weekend split a pattern (§2's "≥ 4 occurrences" does not say). §1 is not yet applied to
+> timing or trend; that is part of unblocking each.
 
 ## D17 — Historical re-runs and the per-user watermark
 

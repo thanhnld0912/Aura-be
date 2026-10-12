@@ -531,9 +531,18 @@ manufacturing an observation from one data point.
 > `isComplete`), `coverage`, seven `days`, `nutrition`, `activity`, `plan`, `habits`,
 > `checkins`, `sleep`, `comparison` (previous week, rates only, each metric `available` |
 > `insufficient_data` | `unavailable`), `patterns` (`unavailable` until the Pattern Engine
-> exists) and `dataQuality.limitations`. Every section is `ok` or `no_data`; with no data its
+> exists), `patternFacts` and `dataQuality.limitations`. Every section is `ok` or `no_data`; with no data its
 > behaviour figures are `null`, never `0`. Confirmed meals only — drafts are excluded. No
 > calorie figures: those are `GET /api/nutrition/weekly`, which honours `showCalories`.
+>
+> **`patternFacts`** (5.3D follow-up, additive) — factual patterns served **beside** the ranked
+> `patterns`, never inside them (PATTERN_ENGINE_DECISIONS.md D10 S3): today only the logging streak.
+> `{ status: unavailable | none | available, items[] }`; each item is `{ id, kind: 'streak', key,
+> subjectMetric: 'logged_day', subjectLabel, strength, sampleSize, coverage, windowStart,
+> windowEnd, windowDays: 45, run: { from, to, length }, current, observedDays, caveat }`.
+> `strength` is the run's share of the 45-day window — a description, not a confidence; there is no
+> `pValue`. `caveat` is engine-owned text and may be `null` rather than hide the fact. Like
+> `patterns`, it is current state: a past week is `unavailable`. The story never narrates it.
 >
 > **`POST /api/insights/weekly/story`** `{ weekStart?: date }` — `ai-heavy` (3/day). Returns
 > `{ status, report, story }`, where `status` is `ready`, `insufficient_data` (fewer than 3

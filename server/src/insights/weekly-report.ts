@@ -7,7 +7,12 @@ import type {
   workoutStatusEnum,
 } from '../database/schema/enums.js';
 import { addLocalDays } from '../lib/local-date.js';
-import type { PatternSelection, PatternSelectionStatus, RankedPatternEvidence } from './pattern-evidence.js';
+import type {
+  PatternFactSelection,
+  PatternSelection,
+  PatternSelectionStatus,
+  RankedPatternEvidence,
+} from './pattern-evidence.js';
 
 /**
  * A pattern as the weekly report publishes it. `GET /api/insights/weekly` requires every
@@ -17,6 +22,33 @@ import type { PatternSelection, PatternSelectionStatus, RankedPatternEvidence } 
  * rather than publish it unhedged — making the API caveat nullable is the pattern-API work.
  */
 export type PublishedPattern = RankedPatternEvidence & { caveat: string };
+
+/**
+ * A factual pattern as the weekly report publishes it — today, the logging streak (D10 S3).
+ * Not ranked and not scored: `strength` is the run's share of the 45-day window (S1), a
+ * description of the run, never a confidence. The caveat is engine-owned text; unlike a
+ * ranked pattern, a fact without copy is published with `caveat: null` rather than dropped.
+ * The weekly story does not read this section — a fact is not narrated.
+ */
+export interface PublishedPatternFact {
+  id: string;
+  kind: 'streak';
+  key: string;
+  subjectMetric: string;
+  subjectLabel: string;
+  strength: number;
+  /** The run's length. */
+  sampleSize: number;
+  coverage: number;
+  windowStart: string;
+  windowEnd: string;
+  windowDays: number;
+  run: { from: string; to: string; length: number };
+  /** Whether the run ends on the window's last closed day. */
+  current: boolean;
+  observedDays: number;
+  caveat: string | null;
+}
 
 /**
  * A week of someone's logs, turned into facts — deterministically, and without a model.
@@ -129,6 +161,11 @@ export interface WeeklyReportInput {
   current: WeeklyRawData;
   previous: WeeklyRawData;
   patterns: PatternSelection;
+  /**
+   * Served beside `patterns`, never ranked with them (`selectPatternFacts`). Absent means
+   * no source was asked, which is reported as `unavailable` — never as "none".
+   */
+  patternFacts?: PatternFactSelection;
 }
 
 // ── Output ─────────────────────────────────────────────────────────────────────
@@ -245,6 +282,7 @@ export interface WeeklyReport {
     metrics: ComparisonMetric[];
   };
   patterns: { status: PatternSelectionStatus; items: PublishedPattern[] };
+  patternFacts: { status: PatternSelectionStatus; items: PublishedPatternFact[] };
   dataQuality: { limitations: LimitationCode[] };
 }
 
@@ -270,7 +308,7 @@ const MOODS: readonly Mood[] = ['low', 'okay', 'good', 'great'];
 const DAY_TAGS: readonly DayTag[] = ['normal', 'busy', 'better_than_expected', 'not_as_planned'];
 const HABIT_STATUSES: readonly HabitLogStatus[] = ['done', 'partial', 'skipped'];
 
-type WeekFigures = Omit<WeeklyReport, 'comparison' | 'patterns' | 'dataQuality'>;
+type WeekFigures = Omit<WeeklyReport, 'comparison' | 'patterns' | 'patternFacts' | 'dataQuality'>;
 
 // ── The report ─────────────────────────────────────────────────────────────────
 
@@ -286,12 +324,42 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReport {
     ...current,
     comparison,
     patterns: publishable(input.patterns),
+    patternFacts: publishableFacts(input.patternFacts ?? { status: 'unavailable', items: [] }),
     dataQuality: { limitations: limitationsOf(current, comparison.status, input.patterns.status) },
   };
 }
 
 function publishable(selection: PatternSelection): WeeklyReport['patterns'] {
   const items = selection.items.flatMap((item) => (item.caveat === null ? [] : [{ ...item, caveat: item.caveat }]));
+  if (selection.status === 'unavailable') return { status: 'unavailable', items };
+  return { status: items.length > 0 ? 'available' : 'none', items };
+}
+
+function publishableFacts(selection: PatternFactSelection): WeeklyReport['patternFacts'] {
+  const items = selection.items.flatMap((item): PublishedPatternFact[] => {
+    const evidence = item.evidence;
+    // Only the logging streak is factual today; a fact of another shape is not published.
+    if (item.kind !== 'streak' || !('type' in evidence)) return [];
+    return [
+      {
+        id: item.id,
+        kind: 'streak',
+        key: item.key,
+        subjectMetric: item.subjectMetric,
+        subjectLabel: item.subjectLabel,
+        strength: item.strength,
+        sampleSize: item.sampleSize,
+        coverage: item.coverage,
+        windowStart: item.windowStart,
+        windowEnd: item.windowEnd,
+        windowDays: item.windowDays,
+        run: { ...evidence.run },
+        current: evidence.current,
+        observedDays: evidence.observedDays,
+        caveat: item.caveat,
+      },
+    ];
+  });
   if (selection.status === 'unavailable') return { status: 'unavailable', items };
   return { status: items.length > 0 ? 'available' : 'none', items };
 }
