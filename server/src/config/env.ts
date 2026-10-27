@@ -1,5 +1,7 @@
 import { config as loadDotenv } from 'dotenv';
 import { z } from 'zod';
+// Zod 3's validation messages, for every process that parses its environment.
+import '../lib/zod-messages.js';
 
 /**
  * Configuration is parsed once, at boot, through a Zod schema (DEPLOYMENT.md §3).
@@ -89,7 +91,7 @@ export const envSchema = z.object({
   // ── Security ────────────────────────────────────────────────────────────
   // Explicit allowlist, never `*` and never reflected from Origin (SECURITY.md §6).
   CORS_ORIGIN: csv,
-  RATE_LIMIT_ENABLED: booleanish.default('true'),
+  RATE_LIMIT_ENABLED: booleanish.default(true),
   /**
    * Serves Swagger UI at /docs and the OpenAPI document at /docs/json.
    *
@@ -97,7 +99,7 @@ export const envSchema = z.object({
    * public production deployment: the document is a complete map of the surface, which
    * is convenient for a developer and equally convenient for anyone else.
    */
-  DOCS_ENABLED: booleanish.default('true'),
+  DOCS_ENABLED: booleanish.default(true),
   MAX_UPLOAD_BYTES: z.coerce.number().int().min(1).default(8_388_608),
 
   // ── Pattern Engine (Phase 5) ────────────────────────────────────────────
@@ -110,11 +112,11 @@ export const envSchema = z.object({
    * Independent of `CRON_ENABLED`: this flag starts no job and writes nothing, and the
    * scheduler serves nothing. Each is off unless set on its own.
    */
-  PATTERN_ENGINE_ENABLED: booleanish.default('false'),
+  PATTERN_ENGINE_ENABLED: booleanish.default(false),
 
   // ── Scheduled jobs (Phase 5) ────────────────────────────────────────────
   /** Whether `jobs/scheduler.ts` starts. Read by that process only; the API starts no job. */
-  CRON_ENABLED: booleanish.default('false'),
+  CRON_ENABLED: booleanish.default(false),
   CRON_TIMEZONE: z.string().min(1).default('Asia/Ho_Chi_Minh'),
 });
 

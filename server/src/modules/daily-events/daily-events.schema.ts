@@ -17,7 +17,7 @@ export const eventTypeSchema = z.enum([
 ]);
 
 export const eventSchema = z.object({
-  id: z.string().uuid(),
+  id: z.guid(),
   type: eventTypeSchema,
   occurredAt: z.string(),
   localDate: z.string(),
@@ -26,7 +26,7 @@ export const eventSchema = z.object({
   note: z.string().nullable(),
   inputMethod: z.enum(['photo', 'text', 'quick', 'manual', 'auto']),
   source: z.enum(['user', 'ai', 'imported']),
-  metrics: z.record(z.number()).nullable(),
+  metrics: z.record(z.string(), z.number()).nullable(),
   /**
    * The typed payload hanging off the event. `meal` and `workout` detail arrive with
    * their modules in Phase 3 and later; until then a meal event genuinely has no
@@ -47,7 +47,7 @@ export const createEventSchema = z
     occurredAt: instantSchema.optional(),
     durationMin: z.number().int().min(1).max(1440).optional(),
     note: z.string().max(500).optional(),
-    metrics: z.record(z.number().finite()).optional(),
+    metrics: z.record(z.string(), z.number().finite()).optional(),
   })
   .strict();
 
@@ -57,7 +57,7 @@ export const updateEventSchema = z
     occurredAt: instantSchema,
     durationMin: z.number().int().min(1).max(1440).nullable(),
     note: z.string().max(500).nullable(),
-    metrics: z.record(z.number().finite()).nullable(),
+    metrics: z.record(z.string(), z.number().finite()).nullable(),
   })
   .partial()
   .strict()

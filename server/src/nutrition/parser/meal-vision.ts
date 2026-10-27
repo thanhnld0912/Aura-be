@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { MealUnit } from '../types.js';
 
 /**
@@ -71,14 +70,17 @@ export type MealVision = z.infer<typeof mealVisionSchema>;
 /**
  * The same schema as JSON Schema, for `AiRequest.jsonSchema`.
  *
- * `zod-to-json-schema`, as for extraction, and for the same Zod 3 reason. Keywords the
+ * `z.toJSONSchema`, exactly as for extraction. Keywords the
  * provider does not support are its concern, not this module's: `GeminiProvider` narrows
  * the schema to what its API accepts, and Zod still enforces the full contract on the
  * way back. Computed once.
  */
 export const mealVisionJsonSchema: Record<string, unknown> = (() => {
-  const converted = zodToJsonSchema(mealVisionSchema, {
-    $refStrategy: 'none',
+  const converted = z.toJSONSchema(mealVisionSchema, {
+    target: 'draft-07',
+    io: 'input',
+    reused: 'inline',
+    unrepresentable: 'any',
   }) as Record<string, unknown>;
   delete converted['$schema'];
   return converted;

@@ -20,7 +20,7 @@ export const localDateSchema = z
 /** `HH:mm`, 24-hour. Postgres `time` values are normalised to this on the way out. */
 export const localTimeSchema = z.string().regex(LOCAL_TIME_PATTERN, 'must be HH:mm');
 
-export const uuidSchema = z.string().uuid();
+export const uuidSchema = z.guid();
 
 export const idParamSchema = z.object({ id: uuidSchema }).strict();
 

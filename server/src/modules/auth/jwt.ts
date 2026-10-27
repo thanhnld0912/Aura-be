@@ -34,9 +34,15 @@ const ASYMMETRIC_ALGORITHMS = new Set(['RS256', 'RS384', 'RS512', 'ES256', 'ES38
  * everything else is incidental. Parsed rather than cast — a token is input, and the
  * one field the whole authorization model rests on gets a uuid check.
  */
+/**
+ * Zod 3's email pattern, kept so the same addresses are accepted as before Zod 4. Zod 4's
+ * default is written differently; a token whose email it rejected would become a 401.
+ */
+const EMAIL_PATTERN = /^(?!\.)(?!.*\.\.)([A-Z0-9_'+\-\.]*)[A-Z0-9_+-]@([A-Z0-9][A-Z0-9\-]*\.)+[A-Z]{2,}$/i;
+
 const claimsSchema = z.object({
-  sub: z.string().uuid(),
-  email: z.string().email().optional(),
+  sub: z.guid(),
+  email: z.email({ pattern: EMAIL_PATTERN }).optional(),
   role: z.string().optional(),
 });
 

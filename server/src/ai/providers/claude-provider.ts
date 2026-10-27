@@ -82,7 +82,7 @@ export class ClaudeProvider implements AiProvider {
           messages: [{ role: 'user', content: request.user }],
           // Structured output when the caller supplied a schema, plain text otherwise.
           // `AiRequest.jsonSchema` is already JSON Schema — the caller produced it with
-          // `zod-to-json-schema` — so it passes straight through.
+          // `z.toJSONSchema` — so it passes straight through.
           ...(hasSchema(request.jsonSchema)
             ? { output_config: { format: { type: 'json_schema' as const, schema: request.jsonSchema } } }
             : {}),

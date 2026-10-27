@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import { MEAL_UNITS } from '../types.js';
 
 /**
@@ -59,16 +58,18 @@ export type MealExtraction = z.infer<typeof mealExtractionSchema>;
 /**
  * The same schema as JSON Schema, for `AiRequest.jsonSchema`.
  *
- * Built with `zod-to-json-schema`, which the project already depends on. The SDK's
- * `zodOutputFormat()` helper is not an option: it imports from `zod/v4` and AURA is on
- * Zod 3 (established in Task 3). `$refStrategy: 'none'` inlines the item definition,
- * because a `$ref` into a `definitions` block the request does not carry would dangle.
+ * Built with Zod's own `z.toJSONSchema`, as draft-07 describing the input side.
+ * `reused: 'inline'` inlines the item definition, because a `$ref` into a `$defs` block the
+ * request does not carry would dangle.
  *
  * Computed once — it is a constant, and rebuilding it per request would be pure waste.
  */
 export const mealExtractionJsonSchema: Record<string, unknown> = (() => {
-  const converted = zodToJsonSchema(mealExtractionSchema, {
-    $refStrategy: 'none',
+  const converted = z.toJSONSchema(mealExtractionSchema, {
+    target: 'draft-07',
+    io: 'input',
+    reused: 'inline',
+    unrepresentable: 'any',
   }) as Record<string, unknown>;
   // Anthropic has no use for the draft declaration.
   delete converted['$schema'];

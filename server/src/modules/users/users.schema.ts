@@ -5,7 +5,7 @@ import type { UserWithPreferences } from './users.repository.js';
 /** Request and response contracts for `/api/users` (API_DESIGN.md §5). */
 
 export const userProfileSchema = z.object({
-  id: z.string().uuid(),
+  id: z.guid(),
   email: z.string(),
   displayName: z.string().nullable(),
   avatarUrl: z.string().nullable(),
