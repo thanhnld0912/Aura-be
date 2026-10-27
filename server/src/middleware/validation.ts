@@ -6,6 +6,8 @@ import type {
 } from 'fastify';
 import { z, type ZodIssue, type ZodTypeAny } from 'zod';
 import { InternalError, ValidationError, type ErrorDetail } from '../lib/errors.js';
+// Zod 3's validation messages: `message` is shown to users as written.
+import { isEnumTypeMismatch } from '../lib/zod-messages.js';
 
 /**
  * Zod is wired in globally (SECURITY.md §3) so validation cannot be forgotten:
@@ -20,11 +22,45 @@ import { InternalError, ValidationError, type ErrorDetail } from '../lib/errors.
  * (NUTRITION_ARCHITECTURE.md §8).
  */
 
+/**
+ * At most this many entries in `details`. A body with thousands of invalid elements yields
+ * thousands of issues, and serializing every one of them is work an attacker chooses the
+ * size of. The first entries are the useful ones; the rest are reported as omitted.
+ */
+export const MAX_VALIDATION_DETAILS = 50;
+
+/** The last entry of a truncated `details`. Same shape as any other entry. */
+export const DETAILS_OMITTED: ErrorDetail = { path: '', issue: 'additional_issues_omitted' };
+
+/**
+ * `details[].issue` as clients have always received it. Zod 4 renamed three issue codes;
+ * the frontend shows and matches the old names, so they are translated back rather than
+ * changing the contract along with the library. Every other code is unchanged in Zod 4.
+ */
+function publishedCode(issue: ZodIssue): string {
+  switch (issue.code) {
+    case 'invalid_format':
+      return 'invalid_string';
+    case 'invalid_value':
+      // Zod 4 merged `invalid_literal` and `invalid_enum_value`. A literal allows exactly
+      // one value; every enum in this API allows several.
+      if (issue.values.length === 1) return 'invalid_literal';
+      // An enum given a non-string was a type error in Zod 3. The input is on the issue only
+      // when the parse asked for it (`reportInput`, as `validatorCompiler` does); without it
+      // the value-level code is the honest answer.
+      return 'input' in issue && isEnumTypeMismatch(issue.input) ? 'invalid_type' : 'invalid_enum_value';
+    default:
+      return issue.code;
+  }
+}
+
 function toDetails(issues: ZodIssue[]): ErrorDetail[] {
-  return issues.map((issue) => ({
+  const details = issues.slice(0, MAX_VALIDATION_DETAILS).map((issue) => ({
     path: issue.path.join('.'),
-    issue: issue.code,
+    issue: publishedCode(issue),
   }));
+  if (issues.length > MAX_VALIDATION_DETAILS) details.push(DETAILS_OMITTED);
+  return details;
 }
 
 /** Exported for the multipart route, which validates its text fields by hand. */
@@ -44,7 +80,9 @@ export function toValidationError(error: z.ZodError, part: string): ValidationEr
 export const validatorCompiler: FastifySchemaCompiler<ZodTypeAny> =
   ({ schema, httpPart }) =>
   (data) => {
-    const result = schema.safeParse(data);
+    // `reportInput` keeps each issue's input, which `publishedCode` needs to tell an enum's
+    // type error from a wrong value. Only codes are derived from it; it is never serialized.
+    const result = schema.safeParse(data, { reportInput: true });
     if (result.success) return { value: result.data };
     return { error: toValidationError(result.error, httpPart ?? 'body') };
   };

@@ -2,7 +2,6 @@ import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import type { FastifyInstance } from 'fastify';
 import { z, type ZodTypeAny } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import { errorEnvelopeSchema } from '../lib/errors.js';
 import { API_VERSION } from '../lib/version.js';
 
@@ -154,26 +153,102 @@ function isZodSchema(value: unknown): value is ZodTypeAny {
 }
 
 /**
- * Zod → JSON Schema.
+ * Zod → JSON Schema, with Zod's own converter.
  *
- * `effectStrategy: 'input'` is the important option: several request schemas end in a
+ * `io: 'input'` is the important option: several request schemas end in a
  * `.transform()` (an ISO string becoming a `Date`, for instance), and the documentation
  * has to describe what a *client sends*, not what the handler receives.
  *
- * `$refStrategy: 'none'` inlines everything. Shared sub-schemas would otherwise emit
- * `$ref: "#/definitions/..."`, which is not where an OpenAPI document keeps them, and
- * the resulting references would dangle in the UI.
+ * `reused: 'inline'` (the default) inlines shared sub-schemas. They would otherwise emit
+ * `$ref: "#/$defs/..."`, which is not where an OpenAPI document keeps them, and the
+ * resulting references would dangle in the UI.
  */
 function toJsonSchema(schema: ZodTypeAny): Record<string, unknown> {
-  const converted = zodToJsonSchema(schema, {
-    target: 'openApi3',
-    $refStrategy: 'none',
-    effectStrategy: 'input',
+  const converted = z.toJSONSchema(schema, {
+    target: 'openapi-3.0',
+    io: 'input',
+    reused: 'inline',
+    unrepresentable: 'any',
   }) as Record<string, unknown>;
 
-  // zod-to-json-schema emits a `$schema` key that OpenAPI has no use for.
+  // A `$schema` declaration has no place inside an OpenAPI document.
   delete converted['$schema'];
-  return converted;
+  return asPublished(converted) as Record<string, unknown>;
+}
+
+/**
+ * Keeps the document byte-for-byte what it was before Zod 4. AURA-FE vendors it and CI
+ * compares the two copies, so a converter's change of phrasing must not reach clients as a
+ * contract change. Each rule below undoes one way `z.toJSONSchema` words the same schema
+ * differently from `zod-to-json-schema`, which does not read Zod 4 schemas:
+ *
+ * - `.int()` gains the safe-integer bounds as `minimum`/`maximum`; they were never published.
+ * - String formats (`uuid`, `date-time`, …) gain the format's own regex as `pattern`;
+ *   `format` alone was published.
+ * - Object schemas validated as input omit `additionalProperties`; `false` was published.
+ * - `z.null()` was published as `{ enum: ["null"], nullable: true }`.
+ *
+ * Validation is unaffected — it is Zod, not this document, that checks requests. Changing
+ * what is published is a contract decision of its own, made with the frontend.
+ */
+function asPublished(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(asPublished);
+  if (node === null || typeof node !== 'object') return node;
+
+  const schema = node as Record<string, unknown>;
+  if (schema['type'] === 'string' && schema['nullable'] === true && isNullOnlyEnum(schema['enum'])) {
+    return { enum: ['null'], nullable: true };
+  }
+
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(schema)) {
+    if (key === 'minimum' && schema['type'] === 'integer' && value === -Number.MAX_SAFE_INTEGER) continue;
+    if (key === 'maximum' && schema['type'] === 'integer' && value === Number.MAX_SAFE_INTEGER) continue;
+    if (key === 'pattern' && typeof schema['format'] === 'string') continue;
+    result[key] =
+      key === 'properties' && value !== null && typeof value === 'object'
+        ? Object.fromEntries(Object.entries(value).map(([name, child]) => [name, asPublished(child)]))
+        : asPublished(value);
+  }
+  if (schema['type'] === 'object' && 'properties' in schema && !('additionalProperties' in schema)) {
+    result['additionalProperties'] = false;
+  }
+  return inPublishedOrder(result);
+}
+
+/** The keyword order the document was published in — key order is part of its bytes. */
+const KEYWORD_ORDER = [
+  'type',
+  'format',
+  'enum',
+  'properties',
+  'required',
+  'additionalProperties',
+  'items',
+  'minItems',
+  'maxItems',
+  'minLength',
+  'maxLength',
+  'pattern',
+  'exclusiveMinimum',
+  'minimum',
+  'exclusiveMaximum',
+  'maximum',
+  'default',
+  'nullable',
+];
+
+function inPublishedOrder(schema: Record<string, unknown>): Record<string, unknown> {
+  const rank = (key: string): number => {
+    const index = KEYWORD_ORDER.indexOf(key);
+    return index === -1 ? KEYWORD_ORDER.length : index;
+  };
+  const keys = Object.keys(schema).sort((a, b) => rank(a) - rank(b));
+  return Object.fromEntries(keys.map((key) => [key, schema[key]]));
+}
+
+function isNullOnlyEnum(value: unknown): boolean {
+  return Array.isArray(value) && value.length === 1 && value[0] === null;
 }
 
 /**

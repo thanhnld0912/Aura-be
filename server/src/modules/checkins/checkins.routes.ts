@@ -15,8 +15,8 @@ import type { CheckinsService } from './checkins.service.js';
  */
 
 export const checkinSchema = z.object({
-  id: z.string().uuid(),
-  eventId: z.string().uuid(),
+  id: z.guid(),
+  eventId: z.guid(),
   localDate: z.string(),
   mood: z.enum(['low', 'okay', 'good', 'great']),
   dayTag: z.enum(['normal', 'busy', 'better_than_expected', 'not_as_planned']).nullable(),

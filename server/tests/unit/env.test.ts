@@ -18,6 +18,16 @@ describe('parseEnv', () => {
     expect(env.CRON_TIMEZONE).toBe('Asia/Ho_Chi_Minh');
   });
 
+  it('defaults the switches to booleans, never to the strings that would read as true', () => {
+    // Zod 4 returns a default as given, without running it through the transform: a
+    // `.default('false')` would leave the non-empty — truthy — string 'false' here.
+    const env = parseEnv(minimal);
+    expect(env.RATE_LIMIT_ENABLED).toBe(true);
+    expect(env.DOCS_ENABLED).toBe(true);
+    expect(env.PATTERN_ENGINE_ENABLED).toBe(false);
+    expect(env.CRON_ENABLED).toBe(false);
+  });
+
   it('fails loudly when a required variable is missing', () => {
     expect(() => parseEnv({ CORS_ORIGIN: 'http://localhost:3000' })).toThrow(EnvValidationError);
   });

@@ -20,7 +20,7 @@ export const sizeLabelSchema = z.enum(['small', 'medium', 'large', 'custom']);
  */
 export const mealItemInputSchema = z
   .object({
-    foodId: z.string().uuid().optional(),
+    foodId: z.guid().optional(),
     name: z.string().min(1).max(120).optional(),
     quantity: z.number().positive().max(100),
     unit: unitSchema,
@@ -76,8 +76,8 @@ const nutrientsSchema = z.object({
 });
 
 export const mealItemSchema = z.object({
-  id: z.string().uuid(),
-  foodId: z.string().uuid().nullable(),
+  id: z.guid(),
+  foodId: z.guid().nullable(),
   detectedName: z.string(),
   displayNameVi: z.string().nullable(),
   displayNameEn: z.string().nullable(),
@@ -94,8 +94,8 @@ export const mealItemSchema = z.object({
 });
 
 export const mealSchema = z.object({
-  id: z.string().uuid(),
-  eventId: z.string().uuid().nullable(),
+  id: z.guid(),
+  eventId: z.guid().nullable(),
   mealType: mealTypeSchema,
   status: z.enum(['draft', 'confirmed', 'discarded']),
   rawInput: z.string().nullable(),

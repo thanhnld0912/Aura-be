@@ -22,7 +22,7 @@ import type { UsersService } from '../users/users.service.js';
  */
 
 const foodSchema = z.object({
-  foodId: z.string().uuid(),
+  foodId: z.guid(),
   nameVi: z.string().nullable(),
   nameEn: z.string(),
   category: z.string().nullable(),
@@ -38,7 +38,7 @@ const foodSchema = z.object({
   matchConfidence: z.number(),
   portions: z.array(
     z.object({
-      id: z.string().uuid().nullable(),
+      id: z.guid().nullable(),
       label: z.string(),
       labelVi: z.string().nullable(),
       grams: z.number(),
@@ -59,7 +59,7 @@ const calculateSchema = z
       .array(
         z
           .object({
-            foodId: z.string().uuid().optional(),
+            foodId: z.guid().optional(),
             name: z.string().min(1).max(120).optional(),
             quantity: z.number().positive().max(100),
             unit: z.enum(MEAL_UNITS),
@@ -176,7 +176,7 @@ export async function nutritionRoutes(
             items: z.array(
               z.object({
                 detectedName: z.string(),
-                foodId: z.string().uuid().nullable(),
+                foodId: z.guid().nullable(),
                 displayNameVi: z.string().nullable(),
                 gramsResolved: z.number().nullable(),
                 nutrition: nutrientsOutSchema,

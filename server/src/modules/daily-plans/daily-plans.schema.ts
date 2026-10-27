@@ -14,20 +14,20 @@ export const adherenceSchema = z.enum([
 ]);
 
 export const planItemSchema = z.object({
-  id: z.string().uuid(),
+  id: z.guid(),
   eventType: eventTypeSchema,
   title: z.string(),
   plannedTime: z.string(),
   plannedDurationMin: z.number().int().nullable(),
-  target: z.record(z.unknown()).nullable(),
+  target: z.record(z.string(), z.unknown()).nullable(),
   sortOrder: z.number().int(),
   adherence: adherenceSchema,
   shiftMinutes: z.number().int().nullable(),
-  linkedEventId: z.string().uuid().nullable(),
+  linkedEventId: z.guid().nullable(),
 });
 
 export const planSchema = z.object({
-  id: z.string().uuid(),
+  id: z.guid(),
   localDate: z.string(),
   source: z.enum(['user', 'ai', 'template']),
   status: z.enum(['draft', 'active', 'archived']),
@@ -40,7 +40,7 @@ const planItemInputSchema = z
     title: z.string().min(1).max(80),
     plannedTime: localTimeSchema,
     plannedDurationMin: z.number().int().min(1).max(600).optional(),
-    target: z.record(z.unknown()).optional(),
+    target: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 
@@ -73,7 +73,7 @@ export const comparisonSchema = z.object({
   adherencePct: z.number().nullable(),
   items: z.array(
     z.object({
-      planItemId: z.string().uuid(),
+      planItemId: z.guid(),
       planned: z.object({
         title: z.string(),
         time: z.string(),
@@ -82,7 +82,7 @@ export const comparisonSchema = z.object({
       }),
       actual: z
         .object({
-          id: z.string().uuid(),
+          id: z.guid(),
           title: z.string(),
           time: z.string(),
           type: eventTypeSchema,
@@ -96,7 +96,7 @@ export const comparisonSchema = z.object({
   /** Neutral by design — things that also happened, not "extras" or "violations". */
   unplanned: z.array(
     z.object({
-      id: z.string().uuid(),
+      id: z.guid(),
       title: z.string(),
       time: z.string(),
       type: eventTypeSchema,

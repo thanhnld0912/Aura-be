@@ -11,7 +11,7 @@ export const healthResponseSchema = z.object({
   version: z.string(),
   /** Whole seconds since process start. */
   uptime: z.number().int().nonnegative(),
-  checks: z.record(checkStatusSchema),
+  checks: z.record(z.string(), checkStatusSchema),
 });
 
 export type HealthResponse = z.infer<typeof healthResponseSchema>;

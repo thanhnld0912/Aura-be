@@ -1,5 +1,4 @@
-import type { ZodTypeAny } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
+import { z, type ZodTypeAny } from 'zod';
 
 /**
  * A Zod schema as the JSON Schema Anthropic structured outputs accept.
@@ -40,5 +39,7 @@ function strip(node: unknown): unknown {
 }
 
 export function toStructuredOutputSchema(schema: ZodTypeAny): Record<string, unknown> {
-  return strip(zodToJsonSchema(schema, { $refStrategy: 'none' })) as Record<string, unknown>;
+  return strip(
+    z.toJSONSchema(schema, { target: 'draft-07', io: 'input', reused: 'inline', unrepresentable: 'any' }),
+  ) as Record<string, unknown>;
 }

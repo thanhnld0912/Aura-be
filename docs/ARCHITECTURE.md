@@ -39,7 +39,7 @@ Three architectural consequences follow directly, and they drive every decision 
 | HTTP framework | **Fastify 5** | TS-first, plugin encapsulation maps onto modular-monolith boundaries, ~2× Express throughput, first-class lifecycle hooks for auth/rate-limit |
 | Database | **PostgreSQL 16** (Supabase) | Relational integrity for plan↔event↔meal; window functions and `CORR()` do the Pattern Engine's real work |
 | ORM / query layer | **Drizzle ORM** | SQL-first and type-safe; drops to raw SQL without escape hatches — essential for the Pattern Engine's window functions; small bundle, fast cold start |
-| Validation | **Zod 3** | One schema definition serving request validation, AI output validation, and shared types |
+| Validation | **Zod 4** | One schema definition serving request validation, AI output validation, and shared types |
 | Auth | **Supabase Auth** | Email + OAuth today, official Android SDK later (Rule 15); backend verifies JWT and owns all domain data |
 | Storage | **Supabase Storage** | Meal photos out of Postgres (§22); same vendor as DB and auth |
 | Reasoning AI | **Claude** (`claude-sonnet-5`) | Analysis, patterns, suggestions, chat |

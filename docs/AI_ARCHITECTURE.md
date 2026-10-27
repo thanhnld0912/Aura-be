@@ -123,9 +123,8 @@ see the warning in §1, and note that Haiku 4.5 would reject both with a 400.
 
 **Structured output.** When a caller supplies `AiRequest.jsonSchema`, it is sent as
 `output_config: { format: { type: 'json_schema', schema } }`. Callers build that JSON Schema
-from their Zod schema with `zod-to-json-schema`, which the project already depends on. The
-SDK's `zodOutputFormat()` helper is **not** usable here: it imports from `zod/v4`, and AURA is
-on Zod 3. Structured output constrains the shape; it does not replace validation, and the
+from their Zod schema with Zod's own `z.toJSONSchema` (draft-07, the input side, shared
+sub-schemas inlined). Structured output constrains the shape; it does not replace validation, and the
 response is still `safeParse`d by `AiService`.
 
 ### The first caller: meal extraction (Task 4)
