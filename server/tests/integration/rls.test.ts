@@ -395,8 +395,8 @@ describe.skipIf(!hasDatabase)('row level security', () => {
       const withoutRls = rows.filter((row) => row['enabled'] !== true).map((r) => r['table_name']);
       expect(withoutRls).toEqual([]);
       // 15 from Phase 2, user_food_aliases from Phase 3, ai_runs from Phase 4, patterns and
-      // pattern_watermarks from Phase 5.
-      expect(rows.length).toBe(19);
+      // pattern_watermarks from Phase 5, idempotency_keys with the activity logging writes.
+      expect(rows.length).toBe(20);
     });
 
     it('has a policy on every table that has RLS enabled', async () => {

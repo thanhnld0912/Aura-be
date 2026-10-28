@@ -259,24 +259,26 @@ describe.skipIf(!hasDatabase)('pattern engine input: daily summaries', () => {
       expect((await summaryFor()).metrics?.[DAY_FACT_KEYS.workoutPlannedTime]).toBeNull();
     });
 
-    it('derives workout completion from workout sessions — which no endpoint writes yet', async () => {
-      // No API writes `workout_sessions` (the metric is `no_write_path`), so the session is
-      // inserted directly to prove the derivation reads the table correctly.
-      const [event] = await harness.sql`
-        insert into daily_events (user_id, local_date, type, occurred_at, title)
-        values (${userId}, ${DATE}, 'workout', ${utcFor('18:00')}, 'Gym')
-        returning id`;
-      await harness.sql`
-        insert into workout_sessions (event_id, user_id, workout_type, status)
-        values (${event!['id']}, ${userId}, 'gym', 'completed')`;
-      await logEvent({ type: 'walk', title: 'Walk', occurredAt: utcFor('19:00') });
+    it('derives workout completion from a workout logged through POST /api/workouts', async () => {
+      // The write path end to end: the endpoint writes the event and a completed session,
+      // and its own refresh recomputes the summary — no second write needed to trigger it.
+      const logged = await harness.app.inject({
+        method: 'POST',
+        url: '/api/workouts',
+        headers: bearer(token),
+        payload: { workoutType: 'gym', occurredAt: utcFor('18:00'), durationMin: 45 },
+      });
+      expect(logged.statusCode).toBe(201);
 
       const row = await summaryFor();
       expect(row.metrics?.[DAY_FACT_KEYS.workoutCompleted]).toBe(1);
     });
 
     describe('workout_completed (decision D3)', () => {
-      /** No endpoint writes `workout_sessions`, so sessions are inserted directly, each on its own live event. */
+      /**
+       * `POST /api/workouts` writes only completed sessions, so partial and skipped ones are
+       * inserted directly, each on its own live event.
+       */
       const addSessions = async (statuses: Array<'completed' | 'partial' | 'skipped'>) => {
         const ids: string[] = [];
         for (const status of statuses) {

@@ -77,7 +77,7 @@ export const DETECTOR_REGISTRY: Readonly<Record<DetectorFamily, DetectorRegistra
     blockedBy: [
       'D16 — the cold-start gate (≥ 30 observed days in the 45-day window) is decided and built in cold-start.ts, but timing does not apply it yet',
       'D16 — noise: the §3.3 gates pass ≈ 9% of seeded pure-noise 45-day datasets (PATTERN_ENGINE.md §3)',
-      'data — no endpoint writes workout_sessions, so workout_completed is null in production (D3)',
+      'data — POST /api/workouts writes only completed sessions (no skip endpoint yet), so workout_completed is 1 or null in production, never 0 — no contrast for timing to measure (D3)',
     ],
     spec: 'PATTERN_ENGINE.md §3.3; evaluation in timing.ts',
   },

@@ -50,6 +50,26 @@ Offset pagination is not offered; history is append-heavy and offsets drift.
 `Idempotency-Key` header, stored for 24 h. This matters on mobile where a retry after a
 dropped connection must not double-log a meal.
 
+Implemented for `POST /api/events`, `POST /api/workouts` and `POST /api/checkins`
+(`modules/idempotency/`); the meal endpoints do not read the header yet.
+
+- The key is 1–255 visible ASCII characters (a UUID is the intended form); anything else is
+  `400 VALIDATION_ERROR` with `details: [{ path: 'idempotency-key', issue: 'invalid_string' }]`.
+  No header means no idempotency, exactly as before.
+- Scope: the authenticated user and the operation. The same key from another user, or sent to
+  another endpoint, is unrelated.
+- A repeat of the same key with the same validated body gets the first response replayed —
+  same status (a check-in's first `201` stays `201`), same body — with
+  `Idempotent-Replayed: true`. Nothing is written, and the plan reconciliation and summary
+  refresh are not run again.
+- The same key with a different body is `409 CONFLICT`; nothing is written.
+- Concurrent duplicates are safe: the key row is written in the same transaction as the
+  record, so a duplicate waits for it and then replays.
+- If the write committed but its refresh failed (or the response was lost), the retry
+  finishes the refresh once and replays; it never writes a second record.
+- The request body is validated before the key is looked at, so a rejected body stores no key.
+- After 24 h the key is free again, and a request using it is a new write.
+
 ---
 
 ## 2. Endpoint map
@@ -254,6 +274,11 @@ Generic logger for types without a richer endpoint (`walk`, `water`, `sleep`, `c
 `201`. Triggers plan reconciliation and a `daily_summaries` recompute (both synchronous,
 both cheap, neither calls AI).
 
+`metrics` keys the clients write, named by their unit: `ml` on a `water` event (the
+amount `daily_summaries.water_ml` adds up) and `km` on a `walk` (its distance, optional).
+For a `sleep` event, `occurredAt` is when the sleep began — the summary reads it as
+bedtime — and `durationMin` is how long it lasted.
+
 ### `PATCH /api/events/:id` · `DELETE /api/events/:id`
 Delete is a soft delete. `204`.
 
@@ -443,6 +468,12 @@ headline; calories are a secondary, hedged detail (§10).
                       weightKg?: number, durationSec?: int, distanceKm?: number }> }
 ```
 `201`, creates event + session.
+
+**Implemented:** `workoutType`, `occurredAt`, `durationMin`, `perceivedEffort`, plus two
+fields for the timeline event — `title?: string(1..80)` (defaults to the type: "Gym",
+"Run", …) and `note?: string(0..500)`. The session is always `completed`. `exercises` is
+not implemented yet; the schema is strict, so a body carrying it is a `400`, not silently
+dropped. Skip and history below are not implemented yet either.
 
 ### `POST /api/workouts/:id/skip`
 ```ts

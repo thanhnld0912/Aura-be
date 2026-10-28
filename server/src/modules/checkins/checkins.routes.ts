@@ -4,6 +4,7 @@ import { localDateSchema } from '../../lib/api-schemas.js';
 import { addLocalDays, todayIn } from '../../lib/local-date.js';
 import { bucket } from '../../middleware/rate-limit.js';
 import { requireUser } from '../auth/auth.plugin.js';
+import { respondIdempotently, type IdempotencyService } from '../idempotency/idempotency.service.js';
 import type { CheckinRow } from './checkins.repository.js';
 import type { CheckinsService } from './checkins.service.js';
 
@@ -58,9 +59,9 @@ function toCheckinResponse(row: CheckinRow): z.infer<typeof checkinSchema> {
 
 export async function checkinsRoutes(
   app: FastifyInstance,
-  options: { checkinsService: CheckinsService },
+  options: { checkinsService: CheckinsService; idempotency: IdempotencyService },
 ): Promise<void> {
-  const { checkinsService } = options;
+  const { checkinsService, idempotency } = options;
 
   app.post(
     '/',
@@ -77,9 +78,17 @@ export async function checkinsRoutes(
       const body = request.body as z.infer<typeof createCheckinSchema>;
 
       // Upsert per day: changing your mind at 21:00 about how the day felt replaces
-      // the morning's answer rather than logging a second check-in.
-      const { checkin, created } = await checkinsService.upsert(user.id, user.timezone, body);
-      return reply.status(created ? 201 : 200).send(toCheckinResponse(checkin));
+      // the morning's answer rather than logging a second check-in. With an
+      // `Idempotency-Key`, a retry replays the first answer — including its 201 — rather
+      // than reporting a 200 "update" of the check-in it just created.
+      return respondIdempotently(request, reply, idempotency, user.id, {
+        operation: 'POST /api/checkins',
+        write: async (db) => {
+          const { checkin, created } = await checkinsService.within(db).write(user.id, user.timezone, body);
+          return { statusCode: created ? 201 : 200, body: toCheckinResponse(checkin), localDate: checkin.localDate };
+        },
+        refresh: (localDate) => checkinsService.refreshDay(user.id, localDate, user.timezone),
+      });
     },
   );
 
