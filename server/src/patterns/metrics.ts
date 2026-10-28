@@ -171,9 +171,13 @@ export const METRICS: Record<MetricKey, MetricDefinition> = {
     label: 'Workout completed',
     unit: '0/1',
     scale: 'binary',
-    status: 'no_write_path',
+    // `POST /api/workouts` writes sessions. Being `available` changes no detection: the
+    // status is read only by `isTrendable`, and a binary metric is never trendable.
+    status: 'available',
     // D3: any completed session → 1; sessions but none completed (partial/skipped) → 0.
     source: 'workout_sessions.status (daily_summaries.metrics.workout_completed)',
+    unresolved:
+      'Only completed sessions can be written so far (no skip endpoint), so the value is 1 or null in production, never 0.',
   },
   workout_planned_time: {
     key: 'workout_planned_time',

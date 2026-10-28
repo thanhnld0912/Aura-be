@@ -106,6 +106,7 @@ describe('OpenAPI documentation', () => {
         ['post', '/api/events'],
         ['get', '/api/checkins'],
         ['post', '/api/checkins'],
+        ['post', '/api/workouts'],
         ['post', '/api/meals'],
         ['post', '/api/meals/parse'],
         ['get', '/api/meals/today'],

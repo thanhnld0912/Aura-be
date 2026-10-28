@@ -678,6 +678,18 @@ application applies on write, and sets both serving columns to null. Nothing is 
 whose source rows do not say stays null. The `metrics` keys are not backfilled; each day gains
 them on its next recompute.
 
+### 3.12 `idempotency_keys` — what a keyed write answered
+
+`0015` (generated) and `0016` (RLS, hand-written). One row per `(user_id, operation, key)` —
+the primary key, which is also the concurrency guard: the row is inserted in the same
+transaction as the record it protects, so a duplicate request blocks on it and then replays
+the stored `status_code` and `response` (API_DESIGN.md §1). `request_hash` is a SHA-256 of
+the validated body, so a reused key with a different body is refused. `completed_at` is set
+after the post-write refresh; a committed row without it is a write whose refresh a retry
+still has to finish. Rows older than 24 h are deleted per user on that user's next keyed
+write, or taken over when their key is reused; there is no scheduled sweep. Cascades with
+the user. RLS: the owner may read their rows; nobody may write them through PostgREST.
+
 ---
 
 ## 4. Indexes

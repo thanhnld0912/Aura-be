@@ -1,11 +1,12 @@
 import { NotFoundError, ValidationError } from '../../lib/errors.js';
 import { toLocalDate } from '../../lib/local-date.js';
+import type { Db } from '../../database/client.js';
 import type { DayEvent } from '../daily-plans/daily-plans.service.js';
 import type { EventType } from '../daily-plans/reconciliation.js';
-import type {
-  DailyEventRow,
+import {
   DailyEventsRepository,
-  ListEventsFilter,
+  type DailyEventRow,
+  type ListEventsFilter,
 } from './daily-events.repository.js';
 
 /**
@@ -88,9 +89,24 @@ export class DailyEventsService {
     timeZone: string,
     command: CreateEventCommand,
   ): Promise<DailyEventRow> {
+    const created = await this.write(userId, timeZone, command);
+    await this.refreshDay(userId, created.localDate, timeZone);
+    return created;
+  }
+
+  /**
+   * This service over another connection — the transaction an `Idempotency-Key` write
+   * runs in. `undefined` is this service.
+   */
+  within(db: Db | undefined): DailyEventsService {
+    return db ? new DailyEventsService(new DailyEventsRepository(db), this.getDayRefresher, this.now) : this;
+  }
+
+  /** `create` without the refresh, for a caller that runs the refresh after its own commit. */
+  async write(userId: string, timeZone: string, command: CreateEventCommand): Promise<DailyEventRow> {
     const occurredAt = command.occurredAt ?? this.now();
 
-    const created = await this.repository.create({
+    return this.repository.create({
       userId,
       // Derived here rather than taken from the client: the local day is a fact about
       // the instant and the user's timezone, not something a caller may assert.
@@ -104,9 +120,11 @@ export class DailyEventsService {
       inputMethod: 'manual',
       source: 'user',
     });
+  }
 
-    await this.getDayRefresher().refresh(userId, created.localDate, timeZone);
-    return created;
+  /** Plan reconciliation and the day's summary, recomputed from the day's events. */
+  refreshDay(userId: string, localDate: string, timeZone: string): Promise<void> {
+    return this.getDayRefresher().refresh(userId, localDate, timeZone);
   }
 
   /**

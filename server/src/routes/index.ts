@@ -41,6 +41,10 @@ import { MealsRepository } from '../modules/meals/meals.repository.js';
 import { mealsRoutes } from '../modules/meals/meals.routes.js';
 import { MealsService } from '../modules/meals/meals.service.js';
 import { nutritionRoutes } from '../modules/nutrition/nutrition.routes.js';
+import { IdempotencyService } from '../modules/idempotency/idempotency.service.js';
+import { WorkoutsRepository } from '../modules/workouts/workouts.repository.js';
+import { workoutsRoutes } from '../modules/workouts/workouts.routes.js';
+import { WorkoutsService } from '../modules/workouts/workouts.service.js';
 import { createPatternEvidenceSource } from '../modules/patterns/patterns-evidence-source.js';
 import { AiService } from '../ai/ai.service.js';
 import { AiRunsRepository } from '../ai/ai-runs.repository.js';
@@ -226,6 +230,8 @@ export async function registerRoutes(
   dayService = new DayService(plansService, eventsService, summariesRepository);
 
   const checkinsService = new CheckinsService(checkinsRepository, () => dayRefresher);
+  const workoutsService = new WorkoutsService(new WorkoutsRepository(db), () => dayRefresher);
+  const idempotency = new IdempotencyService(db);
 
   /**
    * The provider chain (NUTRITION_ARCHITECTURE.md §2). Local is always present; the
@@ -308,8 +314,9 @@ export async function registerRoutes(
   await app.register(authRoutes, { prefix: '/auth', authService, supabaseAuth });
   await app.register(usersRoutes, { prefix: '/users', usersService });
   await app.register(dailyPlansRoutes, { prefix: '/daily-plan', plansService });
-  await app.register(dailyEventsRoutes, { prefix: '/events', eventsService });
-  await app.register(checkinsRoutes, { prefix: '/checkins', checkinsService });
+  await app.register(dailyEventsRoutes, { prefix: '/events', eventsService, idempotency });
+  await app.register(checkinsRoutes, { prefix: '/checkins', checkinsService, idempotency });
+  await app.register(workoutsRoutes, { prefix: '/workouts', workoutsService, idempotency });
   await app.register(mealsRoutes, {
     prefix: '/meals',
     mealsService,

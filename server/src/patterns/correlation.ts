@@ -40,7 +40,8 @@ export interface CorrelationPair {
 /**
  * The pairs that can run today. The other §3.1 pairs wait on open decisions or on data:
  * `bedtime_min ↔ breakfast_logged` (D1), `distinct_foods ↔ vegetable_servings` (D5), and
- * both workout pairs (no write path for `workout_sessions`, D3). The reversed duplicate
+ * both workout pairs (D3: `workout_sessions` is written for completed workouts only, so
+ * `workout_completed` has no 0s to correlate against). The reversed duplicate
  * `plan_adherence_pct ↔ mood_score` is the same undirected test and is not listed (D8).
  */
 export const READY_CORRELATION_PAIRS: readonly CorrelationPair[] = [

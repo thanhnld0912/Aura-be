@@ -4,6 +4,7 @@ import { idParamSchema } from '../../lib/api-schemas.js';
 import { todayIn } from '../../lib/local-date.js';
 import { bucket } from '../../middleware/rate-limit.js';
 import { requireUser } from '../auth/auth.plugin.js';
+import { respondIdempotently, type IdempotencyService } from '../idempotency/idempotency.service.js';
 import { decodeCursor, type DailyEventsService } from './daily-events.service.js';
 import {
   createEventSchema,
@@ -27,9 +28,9 @@ import {
  */
 export async function dailyEventsRoutes(
   app: FastifyInstance,
-  options: { eventsService: DailyEventsService },
+  options: { eventsService: DailyEventsService; idempotency: IdempotencyService },
 ): Promise<void> {
-  const { eventsService } = options;
+  const { eventsService, idempotency } = options;
 
   app.get(
     '/today',
@@ -81,9 +82,16 @@ export async function dailyEventsRoutes(
       const body = request.body as z.infer<typeof createEventSchema>;
 
       // Triggers reconciliation and a summary recompute — both synchronous, both
-      // cheap, neither calls AI (API_DESIGN.md §7).
-      const created = await eventsService.create(user.id, user.timezone, body);
-      return reply.status(201).send(toEventResponse(created));
+      // cheap, neither calls AI (API_DESIGN.md §7). An `Idempotency-Key` makes a retry
+      // replay the first answer instead of logging the event twice (API_DESIGN.md §1).
+      return respondIdempotently(request, reply, idempotency, user.id, {
+        operation: 'POST /api/events',
+        write: async (db) => {
+          const created = await eventsService.within(db).write(user.id, user.timezone, body);
+          return { statusCode: 201, body: toEventResponse(created), localDate: created.localDate };
+        },
+        refresh: (localDate) => eventsService.refreshDay(user.id, localDate, user.timezone),
+      });
     },
   );
 

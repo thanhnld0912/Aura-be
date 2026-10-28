@@ -12,8 +12,9 @@ import { welchTTest } from './statistics.js';
  * *candidate*, and whether a candidate may become a pattern is the registry's call
  * (`registry.ts`). Timing is not allowed to emit yet: §7 reserves it for users with "30+"
  * days of data — D16 has decided that count (`cold-start.ts`), but it is not applied here yet.
- * Its inputs are also data-blocked in production — nothing writes `workout_sessions` (D3) —
- * so today it runs on fixtures only.
+ * Its inputs are also data-limited in production: `POST /api/workouts` writes completed
+ * sessions only, so `workout_completed` is never 0 and there is no contrast to measure (D3).
+ * Today it runs on fixtures only.
  *
  * Pure: day metrics in, an evaluation out. No database, no ranking, no wording.
  */
