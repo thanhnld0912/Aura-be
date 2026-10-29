@@ -215,7 +215,7 @@ describe.skipIf(!hasDatabase)('meals/parse — Claude path', () => {
     const rows = await runs();
 
     const meta = rows[0]?.['request_meta'] as Record<string, unknown>;
-    expect(meta['promptVersion']).toBe('meal-extract-v1');
+    expect(meta['promptVersion']).toBe('meal-extract-v2');
     expect(typeof meta['inputChars']).toBe('number');
 
     const dump = JSON.stringify(rows);

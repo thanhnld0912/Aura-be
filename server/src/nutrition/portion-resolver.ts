@@ -74,7 +74,7 @@ function findPortionForUnit(
   const synonyms: Partial<Record<MealUnit, string[]>> = {
     bowl: ['bowl', 'chen', 'chén', 'tô', 'to', 'bát', 'bat'],
     plate: ['plate', 'đĩa', 'dia'],
-    piece: ['piece', 'quả', 'qua', 'cái', 'cai', 'miếng', 'mieng', 'lát', 'lat'],
+    piece: ['piece', 'quả', 'qua', 'cái', 'cai', 'miếng', 'mieng', 'lát', 'lat', 'hộp', 'carton', 'box'],
     serving: ['serving', 'phần', 'phan', 'portion'],
   };
 

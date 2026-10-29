@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { namesQuery } from '../food-match.js';
 import type { FoodRepository } from '../food-repository.js';
 import { toCandidate } from '../food-repository.js';
 import type { FoodCandidate, NutritionProvider, SearchOptions } from '../types.js';
@@ -73,7 +74,10 @@ export class OpenFoodFactsProvider implements NutritionProvider {
   async search(query: string, options: SearchOptions = {}): Promise<FoodCandidate[]> {
     const limit = options.limit ?? 5;
 
-    const cached = await this.repository.searchFuzzy(query, { limit, provider: 'off' });
+    // The same relevance check as USDA (`namesQuery`), on both the cache and a live search.
+    const cached = (await this.repository.searchFuzzy(query, { limit, provider: 'off' })).filter(({ row }) =>
+      namesQuery(query, [row.nameVi, row.nameEn, row.canonicalName]),
+    );
     if (cached.length > 0) {
       return cached.map(({ row }) => toCandidate(row, 0.6, 'cached'));
     }
@@ -88,6 +92,7 @@ export class OpenFoodFactsProvider implements NutritionProvider {
 
     const candidates: FoodCandidate[] = [];
     for (const product of payload.products.slice(0, limit)) {
+      if (!namesQuery(query, [product.product_name_vi, product.product_name])) continue;
       const candidate = await this.cache(product);
       // §4 step 6: an OFF search hit sits between 0.50 and 0.70.
       if (candidate) candidates.push({ ...candidate, matchConfidence: 0.6, matchedBy: 'off' });

@@ -152,6 +152,31 @@ function explainedBy(word: Token, query: readonly Token[]): number {
   return best;
 }
 
+/**
+ * Whether an external search hit (USDA, Open Food Facts) names what was asked for — the
+ * relevance threshold §4 steps 5–6 require before a hit may stand in for the query.
+ *
+ * Those services rank by their own full-text search and return their best guess, which
+ * was taken as a match with no check at all: for "uống 1 hộp sữa ít đường", a corpus of
+ * English names has nothing to agree with but the "1" — the only word that phrase shares
+ * with *Cheese, cottage, lowfat, 1% milkfat*, the food a user was shown. So a hit counts
+ * only when its names account for at least half of the query's words, the same floor the
+ * local ranker applies. A word is accounted for by an equal word or a near-miss spelling
+ * ("eggs" for *egg*); a number names no food and is not counted.
+ */
+export function namesQuery(query: string, names: ReadonlyArray<string | null | undefined>): boolean {
+  const words = normalizeFoodName(query)
+    .split(' ')
+    .filter((word) => word.length > 0 && !/^\d+$/.test(word));
+  if (words.length === 0) return false;
+
+  const nameWords = names.flatMap((name) => (name ? normalizeFoodName(name).split(' ') : []));
+  const named = words.filter((word) =>
+    nameWords.some((candidate) => candidate === word || trigramSimilarity(word, candidate) >= TYPO_SIMILARITY_FLOOR),
+  );
+  return named.length / words.length >= MIN_ACCOUNTED;
+}
+
 /** pg_trgm's `similarity()`, over unaccented text — the last tiebreak only. */
 export function trigramSimilarity(a: string, b: string): number {
   const left = trigrams(a);
@@ -251,10 +276,23 @@ export function rankLocalMatches<T extends MatchableFood>(
     if (accounted < MIN_ACCOUNTED) continue;
 
     const nameWords = vi.filter((word) => !isGeneric(word));
-    const candidateCoverage =
-      nameWords.length === 0
-        ? 1
-        : average(nameWords.map((word) => explainedBy(word, queryTokens)));
+    const nameScores = nameWords.map((word) => explainedBy(word, queryTokens));
+    const candidateCoverage = nameWords.length === 0 ? 1 : average(nameScores);
+
+    // A row may be more specific than the query ("trứng" → *trứng luộc*, held below) or
+    // less specific ("sữa tươi ít đường" → *sữa tươi*). When **both** sides carry a word
+    // the other does not, it is neither: it is a different food that shares some words.
+    // "sữa ít đường" is not *sữa tươi không đường*, "canh rau muống" is not *canh rau
+    // ngót*, and "gà áp chảo" is not *cháo gà* — "chảo" (pan) agrees with "cháo"
+    // (porridge) only once the typed marks are thrown away. Dropped, so the honest answer
+    // is the next provider or `unresolved` (§4 step 7), never a sibling dish.
+    //
+    // The query's side counts only words with no match at all: a mistyped tone or a
+    // near-miss spelling still points at this row (rule 2). The name's side counts any word
+    // the query does not say outright, a disagreeing tone included.
+    const queryLeftOver = decidingScores.some((score) => score === 0);
+    const nameLeftOver = nameScores.some((score) => score < 1);
+    if (queryLeftOver && nameLeftOver) continue;
 
     const exact =
       !accentAmbiguous &&

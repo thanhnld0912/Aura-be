@@ -337,6 +337,60 @@ describe.skipIf(!hasDatabase)('meals', () => {
       expect(meal.totals.kcal).toBeNull();
     });
 
+    describe('regression: the egg-and-milk sentence', () => {
+      const parse = (text: string) =>
+        harness.app.inject({
+          method: 'POST',
+          url: '/api/meals/parse',
+          headers: bearer(token),
+          payload: { text, mealType: 'breakfast' },
+        });
+
+      it("keeps the user's words beside every match, and never turns milk into cheese", async () => {
+        const text = 'tôi ăn 1 quả trứng và uống 1 hộp sữa ít đường';
+        const response = await parse(text);
+        expect(response.statusCode).toBe(200);
+        const meal = response.json().meal;
+
+        // The sentence is kept verbatim, so a wrong match can be diagnosed and corrected.
+        expect(meal.rawInput).toBe(text);
+        expect(meal.items.map((item: { detectedName: string }) => item.detectedName)).toEqual(['trứng', 'sữa ít đường']);
+
+        const [egg, milk] = meal.items;
+        // A bare "trứng" gets the curated default, but only as an estimate: the
+        // preparation is the dataset's assumption, never presented as certain.
+        expect(egg).toMatchObject({ quantity: 1, unit: 'piece' });
+        expect(egg.confidenceBand).not.toBe('confident');
+
+        // No row names a lightly sweetened milk, so it is unresolved — no food, no
+        // number — rather than a cheese or a milk with a different sugar level.
+        expect(milk).toMatchObject({
+          foodId: null,
+          source: 'unresolved',
+          confidenceBand: 'unresolved',
+          quantity: 1,
+          unit: 'piece',
+        });
+        expect(milk.nutrition.kcal).toBeNull();
+        expect(meal.unresolved).toEqual(['sữa ít đường']);
+        expect(meal.totals.kcal).toBeNull();
+      });
+
+      it('leaves "gà áp chảo" unresolved rather than picking another chicken dish', async () => {
+        const meal = (await parse('gà áp chảo')).json().meal;
+        expect(meal.items).toHaveLength(1);
+        expect(meal.items[0]).toMatchObject({ detectedName: 'gà áp chảo', foodId: null, source: 'unresolved' });
+        expect(meal.items[0].nutrition.kcal).toBeNull();
+      });
+
+      it("weighs a hộp by the food's own carton portion, from the database", async () => {
+        const meal = (await parse('1 hộp sữa tươi')).json().meal;
+        expect(meal.items[0]).toMatchObject({ detectedName: 'sữa tươi', displayNameVi: 'Sữa tươi', gramsResolved: 180 });
+        // 180 g at 61 kcal / 100 g, as the seed records it.
+        expect(meal.items[0].nutrition.kcal).toBeCloseTo(109.8, 1);
+      });
+    });
+
     it('rejects text with no readable food', async () => {
       const response = await harness.app.inject({
         method: 'POST',

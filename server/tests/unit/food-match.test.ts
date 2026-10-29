@@ -3,6 +3,7 @@ import { VN_FOODS } from '../../src/database/seeds/vn-foods/index.js';
 import {
   EXACT_CONFIDENCE,
   FUZZY_FLOOR,
+  namesQuery,
   rankLocalMatches,
   trigramSimilarity,
   type MatchableFood,
@@ -184,5 +185,66 @@ describe('trigramSimilarity', () => {
     expect(trigramSimilarity('thit ga', 'thit bo')).toBeCloseTo(5 / 11, 5);
     expect(trigramSimilarity('bo', 'bo')).toBe(1);
     expect(trigramSimilarity('', 'bo')).toBe(0);
+  });
+});
+
+describe('a different food is not a match (regression: milk, pan-fried chicken)', () => {
+  it('does not resolve "sữa ít đường" to a milk with a different sugar level', () => {
+    // *Sữa tươi không đường* shares "sữa" and "đường"; "ít" (less) and "không" (none)
+    // disagree, so it names a different product. No row is the honest answer.
+    expect(rankLocalMatches('sữa ít đường', POOL)).toEqual([]);
+  });
+
+  it('never offers a cheese for a milk', () => {
+    for (const query of ['sữa ít đường', 'sữa tươi ít đường', 'sữa']) {
+      const categories = rankLocalMatches(query, POOL).map((hit) => hit.food.nameEn.toLowerCase());
+      expect(categories.some((name) => name.includes('cheese')), query).toBe(false);
+    }
+  });
+
+  it('keeps a less specific milk for a milk the dataset does not distinguish', () => {
+    // The query adds a word the row lacks, and the row adds none: a fair generalisation,
+    // held below the confident band for the user to check.
+    expect(top('sữa tươi ít đường')).toMatchObject({ food: { nameVi: 'Sữa tươi' }, matchedBy: 'fuzzy' });
+    expect(top('sữa tươi ít đường')!.confidence).toBeLessThan(0.85);
+  });
+
+  it('does not turn "gà áp chảo" into porridge or another chicken dish', () => {
+    // "chảo" (pan) and "cháo" (porridge) are the same letters once the marks are dropped.
+    expect(rankLocalMatches('gà áp chảo', POOL)).toEqual([]);
+  });
+
+  it('does not swap one vegetable for another', () => {
+    const names = rankLocalMatches('canh rau muống', POOL).map((hit) => hit.food.nameVi);
+    expect(names).not.toContain('Canh rau ngót');
+  });
+
+  it('still forgives a mistyped tone when nothing else disagrees', () => {
+    expect(nameOf('phơ bò')).toBe('Phở bò');
+  });
+
+  it('holds a bare "trứng" at the floor, so the preparation is an estimate to check', () => {
+    // *Trứng luộc* is the curated default (`search_priority`), not a fact about the meal:
+    // it is never presented as confident, and the review shows the user's own word beside it.
+    expect(top('trứng')).toMatchObject({ food: { nameVi: 'Trứng luộc' }, confidence: FUZZY_FLOOR, matchedBy: 'fuzzy' });
+    expect(top('trứng luộc')).toMatchObject({ matchedBy: 'exact', confidence: EXACT_CONFIDENCE });
+  });
+});
+
+describe('namesQuery — the external relevance threshold', () => {
+  it('rejects a hit that shares only a number with the query', () => {
+    expect(namesQuery('uống 1 hộp sữa ít đường', ['Cheese, cottage, lowfat, 1% milkfat'])).toBe(false);
+    expect(namesQuery('sữa ít đường', ['Cheese, cottage, lowfat, 1% milkfat'])).toBe(false);
+    expect(namesQuery('gà áp chảo', ['Chocolate, dark'])).toBe(false);
+  });
+
+  it('accepts a hit that names the query, plurals and diacritics aside', () => {
+    expect(namesQuery('chicken breast', ['Chicken, broilers or fryers, breast, meat only'])).toBe(true);
+    expect(namesQuery('eggs', ['Egg, whole, raw, fresh'])).toBe(true);
+    expect(namesQuery('sữa tươi ít đường', ['Sữa tươi Vinamilk ít đường'])).toBe(true);
+  });
+
+  it('never counts a number as naming a food', () => {
+    expect(namesQuery('1', ['1% milk'])).toBe(false);
   });
 });

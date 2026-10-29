@@ -149,3 +149,38 @@ describe('confidence and honesty about uncertainty', () => {
     expect(await parse(text)).toEqual(await parse(text));
   });
 });
+
+describe('a later fragment with its own verb (regression: "uống 1 hộp sữa")', () => {
+  it('reads each food\'s verb, quantity and measure, not just the first one\'s', async () => {
+    const result = await parse('tôi ăn 1 quả trứng và uống 1 hộp sữa ít đường');
+
+    // Before, the second item was named "uống 1 hộp sữa ít đường" at 1 serving: the verb
+    // hid the quantity and measure, and the whole phrase went to the food database.
+    expect(result.items).toEqual([
+      { name: 'trứng', quantity: 1, unit: 'piece', confidence: 0.9 },
+      { name: 'sữa ít đường', quantity: 1, unit: 'piece', confidence: 0.9 },
+    ]);
+    expect(result.ambiguous).toEqual([]);
+  });
+
+  it('reads a hộp (carton) as one piece, leaving its weight to the food\'s own portions', async () => {
+    const result = await parse('2 hộp sữa tươi');
+    expect(result.items).toEqual([{ name: 'sữa tươi', quantity: 2, unit: 'piece', confidence: 0.9 }]);
+  });
+
+  it('adds no preparation the sentence did not state', async () => {
+    expect((await parse('1 quả trứng')).items).toEqual([
+      { name: 'trứng', quantity: 1, unit: 'piece', confidence: 0.9 },
+    ]);
+    // "áp chảo" is the user's own preparation, kept word for word; an implied amount is
+    // 1 serving at the lower confidence, never a guessed weight.
+    expect((await parse('gà áp chảo')).items).toEqual([
+      { name: 'gà áp chảo', quantity: 1, unit: 'serving', confidence: 0.7 },
+    ]);
+  });
+
+  it('strips an English verb from a later fragment too', async () => {
+    const result = await parse('I ate 2 eggs and drank 1 glass milk');
+    expect(result.items.map((item) => item.name)).toEqual(['eggs', 'milk']);
+  });
+});

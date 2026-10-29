@@ -24,6 +24,14 @@ const LEADING_NOISE =
   /^\s*(?:t[oô]i|m[iì]nh|em|anh|ch[iị]|i|we)?\s*(?:v[uừ]a\s+|just\s+)?(?:[aă]n|u[oố]ng|had|ate|drank|eat|have|drink)\s+/iu;
 
 /**
+ * The same verbs at the start of a later fragment: "… và **uống** 1 hộp sữa". The sentence
+ * gives each food its own verb, and left in place the verb sat in front of the quantity —
+ * so the quantity and measure went unread, and "uống 1 hộp sữa ít đường" was sent to the
+ * food database as the food's name.
+ */
+const FRAGMENT_VERB = /^(?:v[uừ]a\s+|just\s+)?(?:[aă]n|u[oố]ng|had|ate|drank|eat|have|drink)\s+/iu;
+
+/**
  * Splits a sentence into food fragments.
  *
  * Deliberately not `\b`-delimited: JavaScript word boundaries are ASCII-only, so `\bvà\b`
@@ -42,7 +50,12 @@ const UNIT_WORDS: ReadonlyArray<{ words: string[]; unit: MealUnit }> = [
   { words: ['đĩa', 'dia', 'plate', 'plates'], unit: 'plate' },
   { words: ['phần', 'phan', 'suất', 'suat', 'serving', 'servings', 'portion'], unit: 'serving' },
   {
-    words: ['quả', 'qua', 'trái', 'trai', 'cái', 'cai', 'miếng', 'mieng', 'lát', 'lat', 'piece', 'pieces', 'slice'],
+    // A hộp (carton, box) is one package — counted like a piece, and weighed by the food's
+    // own "1 hộp" portion where it has one, never by a volume assumed here.
+    words: [
+      'quả', 'qua', 'trái', 'trai', 'cái', 'cai', 'miếng', 'mieng', 'lát', 'lat', 'piece', 'pieces', 'slice',
+      'hộp', 'hop', 'carton', 'box',
+    ],
     unit: 'piece',
   },
   { words: ['ly', 'cốc', 'coc', 'glass', 'cup', 'lon', 'can', 'chai', 'bottle'], unit: 'ml' },
@@ -80,7 +93,7 @@ export class RuleBasedMealParser implements MealParser {
     const cleaned = text.trim().replace(LEADING_NOISE, '');
     const fragments = cleaned
       .split(SEPARATORS)
-      .map((fragment) => fragment.trim())
+      .map((fragment) => fragment.trim().replace(FRAGMENT_VERB, '').trim())
       .filter((fragment) => fragment.length > 0);
 
     const items: ParsedItem[] = [];
