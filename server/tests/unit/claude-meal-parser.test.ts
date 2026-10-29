@@ -227,7 +227,7 @@ describe('ClaudeMealParser — the request it builds', () => {
       model: MODEL,
       status: 'ok',
     });
-    expect(rows[0]?.requestMeta).toMatchObject({ promptVersion: 'meal-extract-v1' });
+    expect(rows[0]?.requestMeta).toMatchObject({ promptVersion: 'meal-extract-v2' });
 
     const dump = JSON.stringify(rows);
     expect(dump).not.toContain('hai quả trứng');
@@ -525,7 +525,7 @@ describe('ClaudeMealParser — input safety', () => {
     await parser.parse(injection, ctx);
 
     expect(rows[0]?.requestMeta).toMatchObject({
-      promptVersion: 'meal-extract-v1',
+      promptVersion: 'meal-extract-v2',
       safety: 'blocked',
     });
     // `error` stays null: nothing failed, and the reason is a claim about a person.

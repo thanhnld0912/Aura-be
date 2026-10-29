@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { namesQuery } from '../food-match.js';
 import type { FoodRepository } from '../food-repository.js';
 import { toCandidate } from '../food-repository.js';
 import type { FoodCandidate, NutritionProvider, SearchOptions } from '../types.js';
@@ -75,7 +76,11 @@ export class UsdaProvider implements NutritionProvider {
     const limit = options.limit ?? 5;
 
     // Serve a previous lookup for the same term without touching the network.
-    const cached = await this.repository.searchFuzzy(query, { limit, provider: 'usda' });
+    // Both paths are held to the same relevance check (`namesQuery`): a cached row was a
+    // live hit once, and it must still name *this* query to stand in for it.
+    const cached = (await this.repository.searchFuzzy(query, { limit, provider: 'usda' })).filter(({ row }) =>
+      namesQuery(query, [row.nameEn, row.canonicalName]),
+    );
     if (cached.length > 0) {
       return cached.map(({ row, similarity }) =>
         toCandidate(row, clampExternal(similarity), 'cached'),
@@ -87,6 +92,10 @@ export class UsdaProvider implements NutritionProvider {
 
     const candidates: FoodCandidate[] = [];
     for (const item of payload.foods.slice(0, limit)) {
+      // USDA's search always returns its best guess; one that does not name the query is
+      // not a match, and is neither offered nor cached.
+      if (!namesQuery(query, [item.description])) continue;
+
       const per100g = {
         kcal: nutrientOf(item.foodNutrients, NUTRIENT_IDS.kcal),
         proteinG: nutrientOf(item.foodNutrients, NUTRIENT_IDS.proteinG),

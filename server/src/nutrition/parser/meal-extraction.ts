@@ -20,7 +20,7 @@ import { MEAL_UNITS } from '../types.js';
  */
 
 /** Bumped when the prompt text changes, and recorded in `ai_runs.request_meta`. */
-export const MEAL_EXTRACTION_PROMPT_VERSION = 'meal-extract-v1';
+export const MEAL_EXTRACTION_PROMPT_VERSION = 'meal-extract-v2';
 
 /**
  * Sizes a model may assert. `PortionSizeLabel` also has `custom`, which is deliberately
@@ -97,7 +97,8 @@ Return only the structured JSON the schema describes. No prose, no explanation, 
 
 WHAT TO EXTRACT
 - One entry in "items" per distinct food or drink mentioned.
-- "name": the food phrase as the user said it, in the user's own language. Do not translate it, and do not expand it into a recipe. "cơm" stays "cơm".
+- "name": the food phrase as the user said it, in the user's own language, without the verb, the quantity or the measure: "uống 1 hộp sữa ít đường" is "sữa ít đường". Do not translate it, and do not expand it into a recipe. "cơm" stays "cơm".
+- Never add a preparation, flavour, size or brand the user did not say. "trứng" stays "trứng", never "trứng luộc"; "gà áp chảo" stays "gà áp chảo".
 - "quantity" and "unit": what the user actually stated.
 - "sizeLabel": "small" | "medium" | "large" only when the user gave qualitative size ("a big bowl", "tô lớn"). Otherwise null.
 - "confidence": 0..1, how sure you are that you read the phrase correctly. Not how healthy it is, and not how sure you are about its nutrition.
@@ -105,7 +106,7 @@ WHAT TO EXTRACT
 
 UNITS
 Use only: ${MEAL_UNITS.join(', ')}.
-Map real measures onto these: a cup, glass, can or bottle is "ml"; a spoon is "g"; a chén, bát or tô is "bowl"; a đĩa is "plate"; a quả, trái, cái, miếng or lát is "piece"; a phần or suất is "serving". If no measure fits, use "serving".
+Map real measures onto these: a cup, glass, can or bottle is "ml"; a spoon is "g"; a chén, bát or tô is "bowl"; a đĩa is "plate"; a quả, trái, cái, miếng, lát or hộp (carton, box) is "piece"; a phần or suất is "serving". If no measure fits, use "serving".
 
 QUANTITIES YOU WERE NOT GIVEN
 If the user did not state an amount, use quantity 1 with the most natural unit and lower your confidence. Never invent a specific amount. "phở" is 1 bowl at low confidence, never 1 bowl of 400 g.

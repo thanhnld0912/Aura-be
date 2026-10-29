@@ -195,3 +195,84 @@ describe('provider priority', () => {
     expect(off.priority).toBeGreaterThan(usda.priority);
   });
 });
+
+describe('external hits must name the query (regression: milk resolved to cottage cheese)', () => {
+  const cottageCheese = {
+    fdcId: 173417,
+    description: 'Cheese, cottage, lowfat, 1% milkfat',
+    foodCategory: 'Dairy and Egg Products',
+    foodNutrients: [{ nutrientId: 1008, value: 72 }],
+  };
+
+  it('neither offers nor caches a USDA hit that shares only a number with the phrase', async () => {
+    const repository = stubRepository();
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ foods: [cottageCheese] }), { status: 200 }));
+    const provider = new UsdaProvider({ ...usdaConfig, fetchImpl: fetchImpl as unknown as typeof fetch }, repository);
+
+    expect(await provider.search('uống 1 hộp sữa ít đường')).toEqual([]);
+    expect(await provider.search('sữa ít đường')).toEqual([]);
+    // Not cached either, so a later search cannot find it in `foods` and serve it then.
+    expect(repository.cached).toEqual([]);
+  });
+
+  it('ignores a cached USDA row that does not name the query', async () => {
+    const repository = stubRepository();
+    (repository.searchFuzzy as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { row: { id: 'cached-1', canonicalName: cottageCheese.description, nameEn: cottageCheese.description, nameVi: null }, similarity: 0.5 },
+    ]);
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ foods: [] }), { status: 200 }));
+    const provider = new UsdaProvider({ ...usdaConfig, fetchImpl: fetchImpl as unknown as typeof fetch }, repository);
+
+    expect(await provider.search('sữa ít đường')).toEqual([]);
+  });
+
+  it('still accepts a USDA hit that names the query', async () => {
+    const repository = stubRepository();
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          foods: [{ fdcId: 171287, description: 'Egg, whole, raw, fresh', foodNutrients: [{ nutrientId: 1008, value: 143 }] }],
+        }),
+        { status: 200 },
+      ),
+    );
+    const provider = new UsdaProvider({ ...usdaConfig, fetchImpl: fetchImpl as unknown as typeof fetch }, repository);
+
+    expect(await provider.search('eggs')).toHaveLength(1);
+  });
+
+  it('applies the same check to Open Food Facts', async () => {
+    const repository = stubRepository();
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          products: [
+            { code: '1', product_name: 'Cottage cheese 1%', nutriments: { 'energy-kcal_100g': 72 } },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    const provider = new OpenFoodFactsProvider(
+      { baseUrl: 'https://off.example.test', userAgent: 'AURA-test/1.0', fetchImpl: fetchImpl as unknown as typeof fetch },
+      repository,
+    );
+
+    expect(await provider.search('sữa ít đường')).toEqual([]);
+    expect(repository.cached).toEqual([]);
+
+    // The same response shape is accepted when the product does name the phrase, so the
+    // rejection above is the relevance check and not a payload the schema refused.
+    fetchImpl.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          products: [
+            { code: '2', product_name: 'Sữa tươi ít đường', nutriments: { 'energy-kcal_100g': 70 } },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    expect(await provider.search('sữa ít đường')).toHaveLength(1);
+  });
+});
